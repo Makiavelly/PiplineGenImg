@@ -1,0 +1,33 @@
+factory_modules: []
+
+search:
+  provider: wikipedia
+  language: ru
+  max_results: 5
+  timeout_seconds: 20
+
+prompt_builder:
+  provider: kaggle
+  kernel_slug: historical-panorama-prompt-builder
+  model_id: Qwen/Qwen2.5-3B-Instruct
+  accelerator: NvidiaTeslaT4
+
+image_generator:
+  provider: kaggle
+  kernel_slug: historical-panorama-sdxl-generator
+  model_id: stabilityai/stable-diffusion-xl-base-1.0
+  accelerator: NvidiaTeslaT4
+  width: 1536
+  height: 768
+  output_width: 2048
+  output_height: 1024
+  steps: 30
+  guidance_scale: 7.0
+  seed: 42
+
+kaggle:
+  poll_interval_seconds: 15
+  timeout_seconds: 1800
+  work_dir: .kaggle-work
+
+output_dir: runs

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "historical-panorama"
+version = "0.1.0"
+description = "Provider-agnostic pipeline for historical 360-degree panoramas"
+requires-python = ">=3.11"
+dependencies = [
+  "kaggle>=1.7",
+  "Pillow>=10.2,<12",
+  "PyYAML>=6.0,<7",
+  "requests>=2.31,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+historical-panorama = "historical_panorama.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+historical_panorama = ["kaggle_templates/*.tpl"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
