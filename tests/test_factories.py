@@ -1,6 +1,10 @@
 import pytest
 
-from historical_panorama.factories import FactoryContext, FactoryRegistry
+from historical_panorama.factories import (
+    FactoryContext,
+    FactoryRegistry,
+    visual_validator_factories,
+)
 
 
 def test_registry_creates_registered_provider_and_normalizes_name():
@@ -39,3 +43,7 @@ def test_context_does_not_require_kaggle_until_requested(monkeypatch):
     with pytest.raises(ValueError, match="KAGGLE_USERNAME"):
         context.kaggle_runner()
 
+
+def test_visual_validator_registry_has_kaggle_and_fallback():
+    assert "kaggle" in visual_validator_factories.names
+    assert "unavailable" in visual_validator_factories.names

@@ -1,121 +1,157 @@
 # Historical 360° Panorama Pipeline
 
-Рабочий расширяемый конвейер:
+Расширяемый конвейер прямой генерации исторической equirectangular-панорамы:
 
-`название события → веб-исследование → построение промпта → SDXL → PNG 2:1`
+`Wikipedia → структурированные факты → prompt → SDXL → Qwen2.5-VL + технические проверки → panorama.png`
 
-Текущая тестовая конфигурация использует MediaWiki API для поиска, мультиязычную
-`Qwen/Qwen2.5-3B-Instruct` в Kaggle для построения промпта и SDXL в отдельном Kaggle GPU
-kernel для генерации. Каждый блок зависит только от интерфейса в
-`src/historical_panorama/interfaces.py`, поэтому его можно заменить на RAG, OpenAI API,
-локальную модель или другой сервис без изменения оркестратора.
+Текущая конфигурация использует только MediaWiki API как исторический источник. Две
+текстовые стадии на `Qwen/Qwen2.5-3B-Instruct`, мультимодальная проверка на
+`Qwen/Qwen2.5-VL-3B-Instruct` и генерация SDXL выполняются в отдельных Kaggle kernels;
+модели локально не устанавливаются. Реализации выбираются через фабричные реестры в
+`historical_panorama.factories`.
 
-## Что происходит при запуске
+## Этапы
 
-1. Wikipedia-провайдер находит несколько статей и сохраняет факты и URL в `research.json`.
-2. Первый приватный Kaggle kernel преобразует факты в англоязычный промпт с требованиями
-   эквиректангуларной панорамы.
-3. Второй приватный Kaggle GPU kernel запускает SDXL и возвращает `panorama.png`.
-4. Локальный код проверяет статус каждого kernel, наличие ответа, совпадение `run_id` и
-   соотношение сторон 2:1. Итог и источники сохраняются в `runs/<run-id>/`.
+1. Wikipedia-провайдер разрешает redirects и disambiguation, очищает статьи с сохранением
+   разделов, извлекает infobox и выбирает не более `max_related_articles` связанных статей.
+2. LLM извлекает факты с уровнем `supported`, `inferred` или `unknown`, ссылкой на статью и
+   раздел. Ответ проверяется строгой JSON Schema; kernel делает одну попытку исправления.
+3. Необязательные референсы проверяются локально, а Qwen2.5-VL описывает только категории
+   из `use_for`, исключая элементы из `do_not_copy`. Повреждённые референсы пропускаются.
+4. Вторая LLM получает только структурированный анализ, ограничения и сведения о
+   референсах — необработанный текст Wikipedia в генератор prompt не передаётся.
+5. SDXL непосредственно создаёт PNG 2:1. Blender, cubemap и 3D-сцена не используются.
+6. Детерминированный валидатор проверяет файл, размеры, 2:1, пустые/чёрные/повреждённые
+   области, резкость и левый/правый шов.
+7. Панорама преобразуется в восемь горизонтальных perspective-кадров и два кадра с pitch
+   `+60°/-60°`.
+8. Qwen2.5-VL в Kaggle получает perspective-кадры, структурированные факты и ограничения и
+   возвращает проблемы по строгой JSON Schema. При недоступности kernel сохраняется статус
+   `visual_validation_unavailable`, а технические проверки продолжаются.
+9. При технической ошибке controller добавляет конкретную коррекцию в prompt и повторяет
+   полную генерацию, но не более трёх раз. После исчерпания попыток статус —
+   `manual_review_required`.
 
-В логах явно видны: проверка аутентификации, принятие job сервисом Kaggle, переходы
-статуса, скачивание и проверка ответа. Ошибка Kaggle CLI, авторизации, kernel, таймаут,
-старый output или отсутствующий файл завершают запуск с понятным сообщением.
+## Установка и настройка
 
-## Установка
-
-Нужны Python 3.11+, аккаунт Kaggle и доступная GPU-квота Kaggle Notebooks.
+Нужны Python 3.11+, аккаунт Kaggle и GPU-квота Kaggle Notebooks.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
-pip install kaggle
 cp config.example.yaml config.yaml
 cp .env.example .env
 ```
 
-В репозитории уже есть рабочий `config.yaml`; копировать example нужно только если вы
-хотите вернуть настройки к исходным значениям.
+В `.env` укажите `KAGGLE_USERNAME` и `KAGGLE_API_TOKEN` (также поддерживается legacy
+`KAGGLE_KEY`). `.env` исключён из Git.
 
-В `.env` укажите `KAGGLE_USERNAME` и токен. Токен создаётся в настройках Kaggle API.
-Предпочтителен текущий `KAGGLE_API_TOKEN`; поддержан и legacy `KAGGLE_KEY`. Файл `.env`
-исключён из Git. Никогда не присылайте и не коммитьте токен в исходный код.
-
-Сначала проверьте только подключение:
+Проверка подключения:
 
 ```bash
 historical-panorama --config config.yaml --check-connections
 ```
 
-Успех выглядит так:
-
-```text
-Kaggle: checking authentication for user ...
-Kaggle: connection and authentication succeeded.
-```
-
-Запуск полного конвейера:
+Полный запуск:
 
 ```bash
 historical-panorama --config config.yaml "Строительство крепости Свияжск в 1551 году"
 ```
 
-Первый запуск может быть долгим: два Kaggle job скачивают модели. По умолчанию общий
-таймаут каждого job — 30 минут. Kernel имеют постоянные имена и при следующих запусках
-создают новые версии, а не бесконечно новые проекты.
+VPN влияет только на реальные запросы Wikipedia/Kaggle. Unit-тесты используют моки и не
+требуют сети или GPU.
 
-## Замена блоков
+## Референсы
 
-Новый поиск реализует `InformationProvider.research`, построитель — `PromptBuilder.build`,
-генератор — `ImageGenerator.generate`. Затем фабрика регистрируется в одном из реестров из
-`historical_panorama.factories`. Kaggle не является частью центрального pipeline — это лишь
-две текущие реализации провайдеров.
+Можно передать JSON-файл с 0–4 элементами:
 
-Например, внешний модуль `my_project/providers.py` может зарегистрировать RAG-поиск:
+```json
+[
+  {
+    "path": "reference.jpg",
+    "use_for": ["clothing", "weapon_shape"],
+    "do_not_copy": ["background", "composition"]
+  }
+]
+```
+
+```bash
+historical-panorama --config config.yaml --references references.json "Название события"
+```
+
+Или повторить `--reference` с inline JSON. Повреждённые, отсутствующие и неподдерживаемые
+файлы пропускаются с записью причины в отчёт. При наличии `use_for` валидный референс
+анализируется отдельным Qwen2.5-VL kernel; исходное разрешение перед отправкой уменьшается.
+
+## Сохранение и восстановление
+
+Каждый этап атомарно обновляет `state.json`. В каталоге запуска сохраняются:
+
+- `research.json`, `analysis.json`, `constraints.json`, `references.json`;
+- `prompt.json`, `structured_description.json`, `used_facts.json`, `sources.json`;
+- `attempts/attempt_NN/` с prompt, panorama, параметрами генерации, perspective-кадрами и
+  техническим/визуальным отчётами;
+- итоговые `panorama.png`, `manifest.json` и `final_report.json`.
+
+Продолжение прерванного запуска:
+
+```bash
+historical-panorama --config config.yaml --resume runs/<run-directory>
+```
+
+Успешно сохранённые Wikipedia-материалы, анализ, prompt и готовые попытки повторно не
+запрашиваются. CLI возвращает код `2`, если итог требует ручной проверки.
+
+## Расширение
+
+Основные протоколы находятся в `historical_panorama.interfaces`: `InformationProvider`,
+`HistoricalFactExtractor`, `PromptBuilder`, `ImageGenerator`, `VisualValidator` и
+`ReferenceAnalyzer`. Встроенные
+реестры:
+
+- `information_provider_factories`;
+- `fact_extractor_factories`;
+- `prompt_builder_factories`;
+- `image_generator_factories`;
+- `visual_validator_factories`.
+
+Внешняя реализация регистрируется в модуле и подключается через `factory_modules` в YAML:
 
 ```python
 from historical_panorama.factories import information_provider_factories
 
-@information_provider_factories.register("my_rag")
-def build_my_rag(config, context):
-    return MyRagProvider(index_url=config["index_url"])
+@information_provider_factories.register("my_wikipedia_cache")
+def build_provider(config, context):
+    return MyWikipediaCache(config["path"])
 ```
 
-Подключение и выбор выполняются только через YAML:
+На текущем этапе исторический provider должен оставаться Wikipedia-only. Общий
+`KaggleKernelRunner` создаётся лениво через `FactoryContext`, а проверка соединения
+выполняется один раз.
 
-```yaml
-factory_modules:
-  - my_project.providers
+## Что проверяет код, а что — модели
 
-search:
-  provider: my_rag
-  index_url: https://example.test/index
-```
+Алгоритмы детерминированно проверяют входные файлы, JSON Schema, размеры/2:1, области
+изображения, резкость, характеристики шва, предел попыток и создают perspective-кадры.
+Wikipedia очищается и ранжируется парсером.
 
-Аналогично используются `prompt_builder_factories` и `image_generator_factories`. Менять
-`config.py` и `HistoricalPanoramaPipeline` при добавлении провайдера не нужно. Общие внешние
-клиенты можно лениво получать через `FactoryContext`; встроенные Kaggle-фабрики используют
-`context.kaggle_runner()`. Проверка подключения выполняется один раз для каждого созданного
-сервиса.
+Текстовая Qwen выделяет исторические факты и формирует финальное визуальное описание. SDXL
+генерирует изображение. Qwen2.5-VL анализирует разрешённые свойства референсов и проверяет
+perspective-кадры на визуальные дефекты и соответствие переданным ограничениям. Она не
+используется как самостоятельный исторический источник.
 
-Настройки моделей, размеров, seed, числа шагов и таймаутов вынесены в `config.yaml`.
-Для prompt builder и SDXL явно запрашивается `NvidiaTeslaT4`; это исключает ошибки
-несовместимости CUDA на старых GPU Kaggle.
-Перед запуском SDXL промпт проходит quality gate: проверяются минимальная содержательность,
-английский язык и наличие требований эквиректангуларной геометрии.
-Генерация выполняется в 1536×768, затем результат увеличивается до 2048×1024. Это экономит
-GPU-память, но апскейл не добавляет деталей; при достаточной Kaggle GPU можно увеличить
-исходные размеры, сохраняя строгое отношение 2:1.
+## Ограничения
 
-## Ограничение качества 360°
-
-Формат результата совместим с просмотрщиками эквиректангуларных панорам: PNG и 2:1.
-Однако базовый SDXL не даёт математической гарантии бесшовного стыка или корректной
-проекции у полюсов. Промпт существенно помогает, но для production-качества стоит заменить
-генератор на panorama-specific checkpoint/LoRA либо добавить отдельный seam/pole quality
-gate. Архитектура позволяет сделать это без изменения поиска и prompt builder.
+- Базовый SDXL не гарантирует идеальную сферическую геометрию и бесшовность; validator
+  обнаруживает заметные дефекты, но не исправляет пиксели сам.
+- Технические пороги являются эвристиками и могут потребовать настройки под другую модель.
+- SDXL по-прежнему не поддерживает image conditioning и inpainting в текущей реализации;
+  референсы влияют на prompt через текстовое описание Qwen2.5-VL.
+- Мультимодальная оценка вероятностная и может пропустить дефект; строгая JSON Schema
+  гарантирует структуру ответа, но не истинность суждения модели.
+- Метаданные Wikipedia могут быть неполными; это записывается в `limitations`, после чего
+  pipeline продолжает работу с доступным материалом.
 
 ## Тесты
 
@@ -123,5 +159,4 @@ gate. Архитектура позволяет сделать это без и�
 pytest -q
 ```
 
-Unit-тесты не расходуют Kaggle GPU-квоту. Полный end-to-end запуск начинается только
-явной CLI-командой после настройки токена.
+Тесты не запускают Kaggle kernels и не расходуют GPU-квоту.

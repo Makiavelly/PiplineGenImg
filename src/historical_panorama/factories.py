@@ -5,9 +5,22 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar, cast
 
-from .interfaces import ImageGenerator, InformationProvider, PromptBuilder
+from .interfaces import (
+    HistoricalFactExtractor,
+    ImageGenerator,
+    InformationProvider,
+    PromptBuilder,
+    VisualValidator,
+)
 from .kaggle_runner import KaggleKernelRunner, KaggleSettings
-from .providers import KaggleImageGenerator, KagglePromptBuilder, WikipediaInformationProvider
+from .providers import (
+    KaggleHistoricalFactExtractor,
+    KaggleImageGenerator,
+    KagglePromptBuilder,
+    KaggleVisualValidator,
+    WikipediaInformationProvider,
+)
+from .visual_validation import UnavailableVisualValidator
 
 T = TypeVar("T")
 ProviderConfig = Mapping[str, Any]
@@ -102,8 +115,17 @@ class FactoryRegistry(Generic[T]):
 
 
 information_provider_factories = FactoryRegistry[InformationProvider]("information")
+fact_extractor_factories = FactoryRegistry[HistoricalFactExtractor]("fact extractor")
 prompt_builder_factories = FactoryRegistry[PromptBuilder]("prompt builder")
 image_generator_factories = FactoryRegistry[ImageGenerator]("image generator")
+visual_validator_factories = FactoryRegistry[VisualValidator]("visual validator")
+
+
+@visual_validator_factories.register("unavailable")
+def build_unavailable_visual_validator(
+    config: ProviderConfig, context: FactoryContext
+) -> VisualValidator:
+    return UnavailableVisualValidator()
 
 
 @information_provider_factories.register("wikipedia")
@@ -112,6 +134,19 @@ def build_wikipedia(config: ProviderConfig, _: FactoryContext) -> InformationPro
         language=str(config.get("language", "ru")),
         max_results=int(config.get("max_results", 5)),
         timeout_seconds=int(config.get("timeout_seconds", 20)),
+        max_related_articles=int(config.get("max_related_articles", 6)),
+    )
+
+
+@fact_extractor_factories.register("kaggle")
+def build_kaggle_fact_extractor(
+    config: ProviderConfig, context: FactoryContext
+) -> HistoricalFactExtractor:
+    return KaggleHistoricalFactExtractor(
+        context.kaggle_runner(),
+        str(config["kernel_slug"]),
+        str(config["model_id"]),
+        accelerator=cast(str | None, config.get("accelerator")),
     )
 
 
@@ -139,3 +174,16 @@ def build_kaggle_image(config: ProviderConfig, context: FactoryContext) -> Image
         **options,
     )
 
+
+@visual_validator_factories.register("kaggle")
+def build_kaggle_visual_validator(
+    config: ProviderConfig, context: FactoryContext
+) -> VisualValidator:
+    return KaggleVisualValidator(
+        context.kaggle_runner(),
+        str(config["kernel_slug"]),
+        str(config["model_id"]),
+        accelerator=cast(str | None, config.get("accelerator")),
+        max_input_size=int(config.get("max_input_size", 384)),
+        max_new_tokens=int(config.get("max_new_tokens", 1600)),
+    )

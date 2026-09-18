@@ -1,21 +1,9 @@
-2026-09-07 13:15:42,431 | INFO | Kaggle: checking authentication for user mishashalagin ...
-2026-09-07 13:15:43,497 | INFO | Kaggle: connection and authentication succeeded.
-2026-09-07 13:15:43,498 | INFO | [1/3] Researching historical event: Строительство крепости Свияжск в 1551 году
-2026-09-07 13:15:44,516 | INFO | [2/3] Building an equirectangular panorama prompt
-2026-09-07 13:15:44,518 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: uploading and starting kernel ...
-2026-09-07 13:15:44,518 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: requested accelerator=NvidiaTeslaT4
-2026-09-07 13:15:46,444 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: upload accepted: Kernel version 7 successfully pushed. Please check progress at https://www.kaggle.com/code/mishashalagin/historical-panorama-prompt-builder
-2026-09-07 13:15:47,198 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: status=running
-2026-09-07 13:17:22,196 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: status=complete
-2026-09-07 13:17:22,196 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: downloading response ...
-2026-09-07 13:17:23,674 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: response received successfully (['prompt.json']).
-2026-09-07 13:17:23,676 | INFO | [3/3] Generating the panorama
-2026-09-07 13:17:23,677 | INFO | Kaggle [mishashalagin/historical-panorama-sdxl-generator]: uploading and starting kernel ...
-2026-09-07 13:17:23,677 | INFO | Kaggle [mishashalagin/historical-panorama-sdxl-generator]: requested accelerator=NvidiaTeslaT4
-2026-09-07 13:17:25,535 | INFO | Kaggle [mishashalagin/historical-panorama-sdxl-generator]: upload accepted: Kernel version 4 successfully pushed. Please check progress at https://www.kaggle.com/code/mishashalagin/historical-panorama-sdxl-generator
-2026-09-07 13:17:26,268 | INFO | Kaggle [mishashalagin/historical-panorama-sdxl-generator]: status=running
-2026-09-07 13:19:48,513 | INFO | Kaggle [mishashalagin/historical-panorama-sdxl-generator]: status=complete
-2026-09-07 13:19:48,513 | INFO | Kaggle [mishashalagin/historical-panorama-sdxl-generator]: downloading response ...
-2026-09-07 13:19:50,952 | INFO | Kaggle [mishashalagin/historical-panorama-sdxl-generator]: response received successfully (['panorama.png', 'generation.json']).
-2026-09-07 13:19:50,971 | INFO | Pipeline completed: runs/20260907T101543Z-45f13358-строительство-крепости-свияжск-в-1551-году/panorama.png
-runs/20260907T101543Z-45f13358-строительство-крепости-свияжск-в-1551-году/panorama.png
+2026-09-18 23:51:29,582 | INFO | Kaggle: checking authentication for user mishashalagin ...
+2026-09-18 23:51:30,461 | INFO | Kaggle: connection and authentication succeeded.
+2026-09-18 23:51:30,462 | INFO | [1/7] Researching Wikipedia: Строительство крепости Свияжск в 1551 году
+2026-09-18 23:51:39,958 | INFO | [2/7] Validating 0 reference image(s)
+2026-09-18 23:51:39,958 | INFO | [3/7] Extracting source-grounded historical facts
+2026-09-18 23:51:39,961 | INFO | Kaggle [mishashalagin/historical-panorama-fact-extractor]: uploading and starting kernel ...
+2026-09-18 23:51:39,961 | INFO | Kaggle [mishashalagin/historical-panorama-fact-extractor]: requested accelerator=NvidiaTeslaT4
+2026-09-18 23:51:41,955 | INFO | Kaggle [mishashalagin/historical-panorama-fact-extractor]: upload accepted: Kernel version 1 successfully pushed. Please check progress at https://www.kaggle.com/code/mishashalagin/historical-panorama-fact-extractor
+2026-09-18 23:51:42,745 | INFO | Kaggle [mishashalagin/historical-panorama-fact-extractor]: status=running
