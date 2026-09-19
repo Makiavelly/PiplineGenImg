@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import importlib
 import os
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -34,6 +36,18 @@ def build_pipeline(config_path: Path) -> tuple[HistoricalPanoramaPipeline, Conne
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
         raise ValueError("The configuration root must be a YAML mapping")
+    return build_pipeline_from_mapping(config)
+
+
+def build_pipeline_from_mapping(
+    config: Mapping[str, Any],
+) -> tuple[HistoricalPanoramaPipeline, ConnectionChecks]:
+    """Build a pipeline from an already parsed configuration.
+
+    Keeping this entry point separate from YAML loading lets alternate frontends build
+    provider-specific configurations without writing credentials to disk.
+    """
+    config = dict(config)
     for module_name in config.get("factory_modules", []):
         importlib.import_module(str(module_name))
 

@@ -22,12 +22,13 @@ dev = ["pytest>=8,<9"]
 
 [project.scripts]
 historical-panorama = "historical_panorama.cli:main"
+historical-panorama-web = "historical_panorama.web:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-historical_panorama = ["kaggle_templates/*.tpl"]
+historical_panorama = ["kaggle_templates/*.tpl", "web_static/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

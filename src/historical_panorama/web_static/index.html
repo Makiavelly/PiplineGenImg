@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Panorama Pipeline · Admin</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="grain"></div>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Panorama Pipeline">
+      <span class="brand-mark">P</span>
+      <span>Panorama <em>Pipeline</em></span>
+    </a>
+  </header>
+
+  <main>
+    <section class="workspace">
+      <div class="panel configurator">
+        <div class="section-head">
+          <div><span class="step-number">01</span><h2>Конфигурация</h2></div>
+          <button class="text-button" id="resetButton" type="button">Сбросить</button>
+        </div>
+        <div id="stageList" class="stage-list" aria-live="polite">
+          <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+        </div>
+      </div>
+
+      <div class="right-column">
+        <form class="panel launch-panel" id="launchForm">
+          <div class="section-head">
+            <div><span class="step-number">02</span><h2>Новый запуск</h2></div>
+          </div>
+
+          <label class="field-label" for="eventInput">Историческое событие или сцена</label>
+          <div class="prompt-wrap">
+            <textarea id="eventInput" rows="4" required maxlength="1000" placeholder="Например: Строительство крепости Свияжск в 1551 году, летнее утро, вид с торговой площади"></textarea>
+            <span><b id="charCount">0</b> / 1000</span>
+          </div>
+
+          <div class="upload-section" id="uploadSection">
+            <div class="upload-heading">
+              <div><strong>Фотографии для контекста</strong><small id="uploadCapability">Проверяем возможности модели…</small></div>
+              <span id="uploadCount">0 / 4</span>
+            </div>
+            <input id="imageInput" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+            <button class="dropzone" id="dropzone" type="button">
+              <span class="upload-icon">＋</span>
+              <span><strong>Добавить фотографии</strong><small>JPEG, PNG или WebP · до 8 МБ каждая</small></span>
+            </button>
+            <div class="upload-list" id="uploadList"></div>
+          </div>
+
+          <div class="credentials" id="credentials">
+            <div class="credential-title"><span>Доступ к провайдерам</span><small>Передаются только процессу запуска</small></div>
+            <div class="credential-grid">
+              <label><span>Kaggle username</span><input id="kaggleUsername" autocomplete="username" placeholder="username"></label>
+              <label><span>Kaggle API token</span><input id="kaggleToken" type="password" autocomplete="off" placeholder="••••••••••••"></label>
+              <label class="wide"><span>Hugging Face token</span><input id="hfToken" type="password" autocomplete="off" placeholder="hf_••••••••••••••••"></label>
+            </div>
+          </div>
+
+          <div id="formError" class="form-error" role="alert"></div>
+          <button class="launch-button" id="launchButton" type="submit">
+            <span>Запустить конвейер</span><i>↗</i>
+          </button>
+        </form>
+      </div>
+
+      <section class="panel monitor" id="monitor" aria-live="polite">
+        <div class="empty-state" id="emptyState">
+          <div class="radar"><i></i><i></i><b></b></div>
+          <div><h3>Мониторинг запуска</h3><p>Здесь появятся этапы, логи и результат генерации.</p></div>
+        </div>
+
+        <div class="run-state hidden" id="runState">
+          <div class="run-topline">
+            <div><span id="runStatus" class="status-badge">Выполняется</span><small id="runId"></small></div>
+            <b id="progressValue">0%</b>
+          </div>
+          <div class="progress-track"><i id="progressBar"></i></div>
+          <div class="current-stage">
+            <span class="pulse"></span>
+            <div><small>Текущий этап</small><strong id="stageLabel">Подготовка запуска</strong></div>
+            <span id="attemptLabel"></span>
+          </div>
+          <div class="error-box hidden" id="errorBox"></div>
+          <details class="logs" open><summary>Технический журнал <span>свернуть</span></summary><pre id="logOutput"></pre></details>
+        </div>
+      </section>
+    </section>
+
+    <section class="result-section hidden" id="resultSection">
+      <div class="result-heading"><div><p class="eyebrow">Pipeline output</p><h2>Результат генерации</h2></div><div id="resultMeta"></div></div>
+      <div class="result-frame"><img id="resultImage" alt="Сгенерированная историческая панорама"><div class="image-label">360° · Equirectangular · 2:1</div></div>
+      <div id="resultWarnings" class="result-warnings hidden"></div>
+    </section>
+  </main>
+
+  <footer><span>Historical Panorama Pipeline</span><span>Provider-agnostic architecture</span></footer>
+  <script src="/app.js" defer></script>
+</body>
+</html>
