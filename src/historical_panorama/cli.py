@@ -36,6 +36,11 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Only verify connections required by the configured providers",
     )
+    result.add_argument(
+        "--skip-connection-check",
+        action="store_true",
+        help="Skip the optional preflight and let the first provider request verify connectivity",
+    )
     return result
 
 
@@ -44,7 +49,8 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
     try:
         pipeline, connection_checks = build_pipeline(args.config)
-        connection_checks.check_connection()
+        if not args.skip_connection_check:
+            connection_checks.check_connection()
         if args.check_connections:
             return
         if not args.event and args.resume is None:

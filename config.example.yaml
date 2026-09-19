@@ -10,14 +10,17 @@ search:
 fact_extractor:
   provider: kaggle
   kernel_slug: historical-panorama-fact-extractor
-  model_id: Qwen/Qwen2.5-3B-Instruct
+  model_id: Qwen/Qwen2.5-7B-Instruct
   accelerator: NvidiaTeslaT4
+  load_in_4bit: true
+  max_new_tokens: 1400
 
 prompt_builder:
   provider: kaggle
   kernel_slug: historical-panorama-prompt-builder
-  model_id: Qwen/Qwen2.5-3B-Instruct
+  model_id: Qwen/Qwen2.5-7B-Instruct
   accelerator: NvidiaTeslaT4
+  load_in_4bit: true
 
 visual_validator:
   provider: kaggle
@@ -28,22 +31,25 @@ visual_validator:
   max_new_tokens: 1600
 
 image_generator:
-  provider: kaggle
-  kernel_slug: historical-panorama-sdxl-generator
-  model_id: stabilityai/stable-diffusion-xl-base-1.0
+  provider: kaggle_sd35
+  kernel_slug: historical-panorama-sd35-generator
+  model_id: stabilityai/stable-diffusion-3.5-medium
   accelerator: NvidiaTeslaT4
   width: 1536
   height: 768
   output_width: 2048
   output_height: 1024
-  steps: 30
-  guidance_scale: 7.0
+  steps: 28
+  guidance_scale: 4.5
+  max_sequence_length: 512
+  skip_layer_guidance: true
   seed: 42
 
 kaggle:
   poll_interval_seconds: 15
   timeout_seconds: 1800
   work_dir: .kaggle-work
+  force_ipv4: true
 
 output_dir: runs
 

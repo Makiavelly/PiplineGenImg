@@ -125,3 +125,5 @@ def test_visual_kernel_forbids_inventing_historical_requirements():
     ).read_text(encoding="utf-8")
     assert "Do not add\nnew historical requirements" in template
     assert "do_not_over_specify details as an error" in template
+    assert "build_transformers_prefix_allowed_tokens_fn" in template
+    assert template.index("subprocess.check_call") < template.index("from transformers import")

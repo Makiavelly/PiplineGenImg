@@ -25,6 +25,7 @@ class KaggleSettings:
     poll_interval_seconds: int = 15
     timeout_seconds: int = 1800
     work_dir: Path = Path(".kaggle-work")
+    force_ipv4: bool = False
 
 
 class KaggleKernelRunner:
@@ -50,6 +51,13 @@ class KaggleKernelRunner:
             if venv_cli.is_file():
                 self.cli = str(venv_cli)
 
+    def _cli_command(self) -> list[str]:
+        if self.settings.force_ipv4:
+            return [sys.executable, "-m", "historical_panorama.kaggle_cli_ipv4"]
+        if not self.cli:
+            raise KaggleError("Kaggle CLI is not installed. Run: pip install kaggle")
+        return [self.cli]
+
     def check_connection(self) -> None:
         if not self.cli:
             raise KaggleError("Kaggle CLI is not installed. Run: pip install kaggle")
@@ -59,7 +67,7 @@ class KaggleKernelRunner:
             )
         LOG.info("Kaggle: checking authentication for user %s ...", self.settings.username)
         try:
-            self._run([self.cli, "kernels", "list", "--page-size", "1"], timeout=60)
+            self._run([*self._cli_command(), "kernels", "list", "--page-size", "1"], timeout=60)
         except KaggleError as exc:
             raise KaggleError(f"Kaggle connection/authentication check failed: {exc}") from exc
         LOG.info("Kaggle: connection and authentication succeeded.")
@@ -86,7 +94,12 @@ class KaggleKernelRunner:
         script = template.replace("__PAYLOAD_BASE64__", encoded)
         if script == template:
             raise KaggleError(f"Payload marker is absent in template {template_path}")
-        (stage_dir / "kernel.py").write_text(script, encoding="utf-8")
+        script_path = stage_dir / "kernel.py"
+        same_request = (
+            script_path.is_file()
+            and script_path.read_text(encoding="utf-8") == script
+        )
+        script_path.write_text(script, encoding="utf-8")
         metadata = {
             "id": kernel_ref,
             "title": title,
@@ -105,33 +118,107 @@ class KaggleKernelRunner:
             json.dumps(metadata, indent=2), encoding="utf-8"
         )
 
-        LOG.info("Kaggle [%s]: uploading and starting kernel ...", kernel_ref)
-        push_command = [self.cli, "kernels", "push", "-p", str(stage_dir)]
-        if accelerator:
-            push_command.extend(["--accelerator", accelerator])
-            LOG.info("Kaggle [%s]: requested accelerator=%s", kernel_ref, accelerator)
+        reuse_completed = same_request and self._remote_kernel_is_complete(kernel_ref)
+        if reuse_completed:
+            LOG.info(
+                "Kaggle [%s]: identical request already completed; downloading existing response",
+                kernel_ref,
+            )
         else:
-            LOG.info("Kaggle [%s]: using CPU runtime", kernel_ref)
-        push = self._run(push_command, timeout=180)
-        LOG.info("Kaggle [%s]: upload accepted: %s", kernel_ref, self._one_line(push.stdout))
-        self._wait(kernel_ref)
+            LOG.info("Kaggle [%s]: uploading and starting kernel ...", kernel_ref)
+            push_command = [*self._cli_command(), "kernels", "push", "-p", str(stage_dir)]
+            if accelerator:
+                push_command.extend(["--accelerator", accelerator])
+                LOG.info("Kaggle [%s]: requested accelerator=%s", kernel_ref, accelerator)
+            else:
+                LOG.info("Kaggle [%s]: using CPU runtime", kernel_ref)
+            push = self._run(push_command, timeout=180)
+            LOG.info("Kaggle [%s]: upload accepted: %s", kernel_ref, self._one_line(push.stdout))
+            self._wait(kernel_ref)
 
         LOG.info("Kaggle [%s]: downloading response ...", kernel_ref)
-        self._run(
-            [self.cli, "kernels", "output", kernel_ref, "-p", str(output_dir), "-o"],
-            timeout=300,
-        )
-        missing = [name for name in expected_files if not (output_dir / name).is_file()]
-        if missing:
-            raise KaggleError(f"Kaggle response arrived, but files are missing: {missing}")
+        self._download_outputs(kernel_ref, output_dir, expected_files)
         LOG.info("Kaggle [%s]: response received successfully (%s).", kernel_ref, expected_files)
         return output_dir
+
+    def _remote_kernel_is_complete(self, kernel_ref: str) -> bool:
+        try:
+            result = self._run(
+                [*self._cli_command(), "kernels", "status", kernel_ref], timeout=60
+            )
+        except KaggleError as exc:
+            LOG.warning(
+                "Kaggle [%s]: could not check completed request for recovery: %s",
+                kernel_ref,
+                exc,
+            )
+            return False
+        return self._parse_status(f"{result.stdout}\n{result.stderr}".lower()) in self.TERMINAL_SUCCESS
+
+    def _download_outputs(
+        self, kernel_ref: str, output_dir: Path, expected_files: list[str]
+    ) -> None:
+        # Never let files from an older kernel version satisfy the output contract.
+        for name in expected_files:
+            path = output_dir / name
+            if path.is_file():
+                path.unlink()
+
+        last_error: KaggleError | None = None
+        for attempt in range(1, 6):
+            try:
+                self._run(
+                    [
+                        *self._cli_command(), "kernels", "output", kernel_ref,
+                        "-p", str(output_dir), "-o",
+                    ],
+                    timeout=300,
+                )
+                missing = [
+                    name for name in expected_files if not (output_dir / name).is_file()
+                ]
+                if not missing:
+                    return
+                last_error = KaggleError(
+                    f"Kaggle response arrived, but files are missing: {missing}"
+                )
+            except KaggleError as exc:
+                last_error = exc
+            if attempt < 5:
+                LOG.warning(
+                    "Kaggle [%s]: response download failed (%d/5): %s",
+                    kernel_ref,
+                    attempt,
+                    last_error,
+                )
+                time.sleep(self.settings.poll_interval_seconds)
+        assert last_error is not None
+        raise last_error
 
     def _wait(self, kernel_ref: str) -> None:
         deadline = time.monotonic() + self.settings.timeout_seconds
         last_status = None
+        consecutive_errors = 0
         while time.monotonic() < deadline:
-            result = self._run([self.cli, "kernels", "status", kernel_ref], timeout=60)
+            try:
+                result = self._run(
+                    [*self._cli_command(), "kernels", "status", kernel_ref], timeout=60
+                )
+                consecutive_errors = 0
+            except KaggleError as exc:
+                consecutive_errors += 1
+                LOG.warning(
+                    "Kaggle [%s]: status request failed (%d/5): %s",
+                    kernel_ref,
+                    consecutive_errors,
+                    exc,
+                )
+                if consecutive_errors >= 5:
+                    raise KaggleError(
+                        f"Kaggle status polling failed 5 times for {kernel_ref}: {exc}"
+                    ) from exc
+                time.sleep(self.settings.poll_interval_seconds)
+                continue
             text = f"{result.stdout}\n{result.stderr}".lower()
             status = self._parse_status(text)
             if status != last_status:
@@ -162,7 +249,7 @@ class KaggleKernelRunner:
 
     def _get_log_tail(self, kernel_ref: str) -> str:
         try:
-            result = self._run([self.cli, "kernels", "logs", kernel_ref], timeout=60)
+            result = self._run([*self._cli_command(), "kernels", "logs", kernel_ref], timeout=60)
         except KaggleError as exc:
             LOG.warning("Kaggle [%s]: could not download failure log: %s", kernel_ref, exc)
             return ""

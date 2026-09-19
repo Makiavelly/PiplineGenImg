@@ -2,13 +2,32 @@ import base64
 import io
 import json
 import re
+import subprocess
+import sys
+
+REQUEST = json.loads(base64.b64decode("__PAYLOAD_BASE64__").decode("utf-8"))
+subprocess.check_call(
+    [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--quiet",
+        "transformers>=4.49,<5",
+        "accelerate>=0.34,<2",
+        "lm-format-enforcer>=0.10,<1",
+    ]
+)
 
 import torch
 from jsonschema import Draft202012Validator
 from PIL import Image
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
+from lmformatenforcer import JsonSchemaParser
+from lmformatenforcer.integrations.transformers import (
+    build_transformers_prefix_allowed_tokens_fn,
+)
 
-REQUEST = json.loads(base64.b64decode("__PAYLOAD_BASE64__").decode("utf-8"))
 if not torch.cuda.is_available():
     raise RuntimeError("The multimodal validator requires a Kaggle GPU, but CUDA is unavailable")
 
@@ -95,11 +114,15 @@ def generate(text):
     chat = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     inputs = processor(text=[chat], images=images, padding=True, return_tensors="pt")
     inputs = inputs.to(model.device)
+    prefix_allowed_tokens_fn = build_transformers_prefix_allowed_tokens_fn(
+        processor.tokenizer, JsonSchemaParser(schema)
+    )
     with torch.inference_mode():
         generated = model.generate(
             **inputs,
             max_new_tokens=int(REQUEST.get("max_new_tokens", 1600)),
             do_sample=False,
+            prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
         )
     output = generated[:, inputs.input_ids.shape[1]:]
     return processor.batch_decode(output, skip_special_tokens=True)[0].strip()

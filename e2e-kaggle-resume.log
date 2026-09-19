@@ -1,0 +1,11 @@
+2026-09-19 14:38:00,381 | INFO | Kaggle: checking authentication for user mishashalagin ...
+2026-09-19 14:38:13,344 | INFO | Kaggle: connection and authentication succeeded.
+2026-09-19 14:38:13,344 | INFO | [resume] Reusing Wikipedia materials
+2026-09-19 14:38:13,344 | INFO | [resume] Reusing reference report
+2026-09-19 14:38:13,345 | INFO | [resume] Reusing structured historical analysis
+2026-09-19 14:38:13,345 | INFO | [resume] Reusing generated prompt
+2026-09-19 14:38:13,346 | INFO | [5/7] Generating panorama attempt 1/3
+2026-09-19 14:38:14,674 | WARNING | Kaggle [mishashalagin/historical-panorama-sd35-generator]: could not check completed request for recovery: Kaggle command failed (1): Cannot access kernel 'mishashalagin/historical-panorama-sd35-generator' (Permission 'kernels.get' was denied). The most likely cause is a wrong kernel slug. The benchmark_task_slug returned by get_benchmark_leaderboard differs from the actual kernel slug — use the slug from the notebook URL (kaggle.com/code/owner/KERNEL-SLUG), not from the leaderboard. It can also occur if the notebook is private.
+2026-09-19 14:38:14,675 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: uploading and starting kernel ...
+2026-09-19 14:38:14,675 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: requested accelerator=NvidiaTeslaT4
+2026-09-19 14:38:15,596 | ERROR | Pipeline failed: Kaggle command failed (1): 400 Client Error: Bad Request for url: https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel

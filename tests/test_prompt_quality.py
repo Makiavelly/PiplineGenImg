@@ -1,4 +1,5 @@
 import pytest
+from pathlib import Path
 
 from historical_panorama.kaggle_runner import KaggleError
 from historical_panorama.providers.kaggle import KagglePromptBuilder
@@ -32,3 +33,16 @@ def test_prompt_quality_accepts_detailed_english_prompt():
         "information signs, interface elements, watermark, text"
     )
     KagglePromptBuilder._validate_prompt(prompt, negative)
+
+
+def test_prompt_kernel_uses_json_schema_constrained_decoding():
+    template = (
+        Path(__file__).parents[1]
+        / "src/historical_panorama/kaggle_templates/prompt_kernel.py.tpl"
+    ).read_text(encoding="utf-8")
+    assert "build_transformers_prefix_allowed_tokens_fn" in template
+    assert "JsonSchemaParser(response_schema)" in template
+    assert 'description_words[:110]' in template
+    assert "max_new_tokens=420" in template
+    assert '"maxLength": 900' in template
+    assert template.index("subprocess.check_call") < template.index("from transformers import")

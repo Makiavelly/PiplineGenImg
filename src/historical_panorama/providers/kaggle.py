@@ -40,13 +40,20 @@ class KaggleHistoricalFactExtractor:
         kernel_slug: str,
         model_id: str,
         accelerator: str | None = None,
+        load_in_4bit: bool = False,
+        max_new_tokens: int = 1400,
     ):
+        if max_new_tokens < 512:
+            raise ValueError("fact extractor max_new_tokens must be at least 512")
         self.runner = runner
         self.kernel_slug = kernel_slug
         self.model_id = model_id
         self.accelerator = accelerator
+        self.load_in_4bit = load_in_4bit
+        self.max_new_tokens = max_new_tokens
 
     def extract(self, event: str, research: ResearchResult, run_id: str) -> HistoricalAnalysis:
+        materials = self._compact_materials(research)
         output = self.runner.execute(
             kernel_slug=self.kernel_slug,
             title="Historical panorama fact extractor",
@@ -54,9 +61,11 @@ class KaggleHistoricalFactExtractor:
             payload={
                 "run_id": run_id,
                 "event": event,
-                "materials": [asdict(source) for source in research.sources],
+                "materials": materials,
                 "limitations": research.limitations,
                 "model_id": self.model_id,
+                "load_in_4bit": self.load_in_4bit,
+                "max_new_tokens": self.max_new_tokens,
                 "schema": HISTORICAL_ANALYSIS_SCHEMA,
             },
             expected_files=["analysis.json"],
@@ -65,7 +74,59 @@ class KaggleHistoricalFactExtractor:
         data = json.loads((output / "analysis.json").read_text(encoding="utf-8"))
         if data.pop("run_id", None) != run_id:
             raise KaggleError("Received stale historical analysis: run_id does not match")
-        return historical_analysis_from_dict(data)
+        analysis = historical_analysis_from_dict(data)
+        allowed_citations = {
+            (str(item["article"]), str(item["section"])) for item in materials
+        }
+        invalid = [
+            (fact.article, fact.section)
+            for fact in analysis.facts
+            if (fact.article, fact.section) not in allowed_citations
+        ]
+        if invalid:
+            raise KaggleError(
+                "Historical analysis contains citations absent from supplied Wikipedia "
+                f"materials: {invalid[:5]}"
+            )
+        return analysis
+
+    @staticmethod
+    def _compact_materials(research: ResearchResult) -> list[dict[str, object]]:
+        """Keep source identity and useful text without overwhelming a small Kaggle LLM."""
+        ranked = sorted(
+            research.sources,
+            key=lambda source: (
+                source.is_primary,
+                source.relevance,
+                source.section.lower() in {"lead", "infobox"},
+                len(source.text),
+            ),
+            reverse=True,
+        )
+        materials: list[dict[str, object]] = []
+        seen: set[tuple[str, str]] = set()
+        total_characters = 0
+        for source in ranked:
+            article = source.article_title or source.title
+            identity = (article, source.section)
+            if identity in seen or not source.text.strip():
+                continue
+            text = re.sub(r"\s+", " ", source.text).strip()[:900]
+            if total_characters + len(text) > 14000:
+                break
+            materials.append(
+                {
+                    "source_id": len(materials),
+                    "article": article,
+                    "section": source.section,
+                    "text": text,
+                }
+            )
+            seen.add(identity)
+            total_characters += len(text)
+            if len(materials) >= 18:
+                break
+        return materials
 
 
 class KagglePromptBuilder:
@@ -75,11 +136,13 @@ class KagglePromptBuilder:
         kernel_slug: str,
         model_id: str,
         accelerator: str | None = None,
+        load_in_4bit: bool = False,
     ):
         self.runner = runner
         self.kernel_slug = kernel_slug
         self.model_id = model_id
         self.accelerator = accelerator
+        self.load_in_4bit = load_in_4bit
 
     def build(self, event: str, research: ResearchResult, run_id: str) -> PromptResult:
         if research.analysis is None:
@@ -94,6 +157,7 @@ class KagglePromptBuilder:
                 "analysis": asdict(research.analysis),
                 "references": asdict(research.references) if research.references else {},
                 "model_id": self.model_id,
+                "load_in_4bit": self.load_in_4bit,
             },
             expected_files=["prompt.json"],
             accelerator=self.accelerator,
@@ -123,7 +187,11 @@ class KagglePromptBuilder:
         return PromptResult(
             prompt=data["prompt"],
             negative_prompt=data["negative_prompt"],
-            metadata={"provider": "kaggle", "model_id": self.model_id},
+            metadata={
+                "provider": "kaggle",
+                "model_id": self.model_id,
+                "load_in_4bit": self.load_in_4bit,
+            },
             structured_description=asdict(research.analysis),
             used_facts=used_facts,
             sources=sources,
@@ -321,6 +389,9 @@ class KaggleVisualValidator:
 class KaggleImageGenerator:
     supports_image_conditioning = False
     supports_inpainting = False
+    template_name = "sdxl_kernel.py.tpl"
+    kernel_title = "Historical panorama SDXL generator"
+    provider_name = "kaggle_sdxl"
 
     def __init__(self, runner: KaggleKernelRunner, kernel_slug: str, model_id: str, **options):
         self.runner = runner
@@ -339,8 +410,8 @@ class KaggleImageGenerator:
         started = time.monotonic()
         remote = self.runner.execute(
             kernel_slug=self.kernel_slug,
-            title="Historical panorama SDXL generator",
-            template_path=TEMPLATES / "sdxl_kernel.py.tpl",
+            title=self.kernel_title,
+            template_path=TEMPLATES / self.template_name,
             payload={
                 "run_id": run_id,
                 "prompt": prompt.prompt,
@@ -364,7 +435,7 @@ class KaggleImageGenerator:
                     f"Generator returned {image.width}x{image.height}; equirectangular output must be 2:1"
                 )
             metadata["width"], metadata["height"] = image.size
-        metadata.update({"provider": "kaggle", "model_id": self.model_id})
+        metadata.update({"provider": self.provider_name, "model_id": self.model_id})
         metadata.update(
             {
                 "attempt": int(prompt.metadata.get("attempt", 1)),
@@ -378,3 +449,12 @@ class KaggleImageGenerator:
             json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         return ImageResult(path=destination, metadata=metadata)
+
+
+class KaggleSD35ImageGenerator(KaggleImageGenerator):
+    """Stable Diffusion 3.5 Medium on Kaggle with T4-compatible CPU offload."""
+
+    template_name = "sd35_kernel.py.tpl"
+    # Kaggle requires the title-derived slug to match a new kernel id.
+    kernel_title = "Historical panorama sd35 generator"
+    provider_name = "kaggle_sd35"

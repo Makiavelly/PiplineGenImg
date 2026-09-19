@@ -30,7 +30,7 @@ FACT_CATEGORIES = [
     "possible_anachronisms",
 ]
 
-STRING_ARRAY = {"type": "array", "items": {"type": "string"}}
+STRING_ARRAY = {"type": "array", "items": {"type": "string"}, "maxItems": 5}
 
 HISTORICAL_ANALYSIS_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -73,6 +73,7 @@ HISTORICAL_ANALYSIS_SCHEMA: dict[str, Any] = {
         "possible_anachronisms": STRING_ARRAY,
         "facts": {
             "type": "array",
+            "maxItems": 12,
             "items": {
                 "type": "object",
                 "additionalProperties": False,

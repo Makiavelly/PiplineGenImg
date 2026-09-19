@@ -16,6 +16,7 @@ from .kaggle_runner import KaggleKernelRunner, KaggleSettings
 from .providers import (
     KaggleHistoricalFactExtractor,
     KaggleImageGenerator,
+    KaggleSD35ImageGenerator,
     KagglePromptBuilder,
     KaggleVisualValidator,
     WikipediaInformationProvider,
@@ -66,6 +67,7 @@ class FactoryContext:
                 poll_interval_seconds=int(config.get("poll_interval_seconds", 15)),
                 timeout_seconds=int(config.get("timeout_seconds", 1800)),
                 work_dir=Path(config.get("work_dir", ".kaggle-work")),
+                force_ipv4=bool(config.get("force_ipv4", False)),
             )
         )
         self.connection_checks.add(self._kaggle_runner)
@@ -147,6 +149,8 @@ def build_kaggle_fact_extractor(
         str(config["kernel_slug"]),
         str(config["model_id"]),
         accelerator=cast(str | None, config.get("accelerator")),
+        load_in_4bit=bool(config.get("load_in_4bit", False)),
+        max_new_tokens=int(config.get("max_new_tokens", 1400)),
     )
 
 
@@ -157,6 +161,7 @@ def build_kaggle_prompt(config: ProviderConfig, context: FactoryContext) -> Prom
         str(config["kernel_slug"]),
         str(config["model_id"]),
         accelerator=cast(str | None, config.get("accelerator")),
+        load_in_4bit=bool(config.get("load_in_4bit", False)),
     )
 
 
@@ -168,6 +173,23 @@ def build_kaggle_image(config: ProviderConfig, context: FactoryContext) -> Image
         if key not in {"provider", "kernel_slug", "model_id"}
     }
     return KaggleImageGenerator(
+        context.kaggle_runner(),
+        str(config["kernel_slug"]),
+        str(config["model_id"]),
+        **options,
+    )
+
+
+@image_generator_factories.register("kaggle_sd35")
+def build_kaggle_sd35_image(
+    config: ProviderConfig, context: FactoryContext
+) -> ImageGenerator:
+    options = {
+        key: value
+        for key, value in config.items()
+        if key not in {"provider", "kernel_slug", "model_id"}
+    }
+    return KaggleSD35ImageGenerator(
         context.kaggle_runner(),
         str(config["kernel_slug"]),
         str(config["model_id"]),
