@@ -1,4 +1,5 @@
 import pytest
+from pathlib import Path
 
 from historical_panorama.kaggle_runner import KaggleError
 from historical_panorama.providers.kaggle import KagglePromptBuilder
@@ -17,14 +18,31 @@ def test_prompt_quality_rejects_markdown_hallucination():
 
 def test_prompt_quality_accepts_detailed_english_prompt():
     prompt = (
-        "Sviyazhsk fortress construction in 1551 on a high wooded hill above the Volga and "
-        "Sviyaga rivers. Russian carpenters in linen shirts, wool coats, leather boots and "
+        "Seamless equirectangular 360-degree panorama, strict 2:1 aspect ratio, full 360° × 180° "
+        "spherical view, camera at human eye level, continuous level horizon, consistent lighting "
+        "around the entire circumference, no visible seam, no repeated objects, no mirrored "
+        "duplicates, no excessive distortion near the poles. A timber fortress construction on a "
+        "high wooded hill above two rivers. Carpenters in linen shirts, wool coats, leather boots and "
         "caps raise enormous prefabricated oak walls using ropes, axes and timber scaffolds. "
         "Log towers, palisades, unfinished gates, wood chips, carts and stacked beams surround "
         "the viewer under natural summer daylight. Show a busy populated outdoor worksite with "
-        "physically plausible actions and documentary realism. Full 360-degree equirectangular "
-        "panorama, spherical 360x180 field of view, seamless left and right edges, level horizon "
-        "centered vertically, viewer at human eye height inside the scene, consistent scale, "
-        "photorealistic historical reconstruction, no modern objects and no anachronisms."
+        "physically plausible actions and documentary realism with consistent scale."
     )
-    KagglePromptBuilder._validate_prompt(prompt)
+    negative = (
+        "modern objects, visible dates, city names, country names, geographic coordinates, maps, "
+        "information signs, interface elements, watermark, text"
+    )
+    KagglePromptBuilder._validate_prompt(prompt, negative)
+
+
+def test_prompt_kernel_uses_json_schema_constrained_decoding():
+    template = (
+        Path(__file__).parents[1]
+        / "src/historical_panorama/kaggle_templates/prompt_kernel.py.tpl"
+    ).read_text(encoding="utf-8")
+    assert "build_transformers_prefix_allowed_tokens_fn" in template
+    assert "JsonSchemaParser(response_schema)" in template
+    assert 'description_words[:110]' in template
+    assert "max_new_tokens=420" in template
+    assert '"maxLength": 900' in template
+    assert template.index("subprocess.check_call") < template.index("from transformers import")

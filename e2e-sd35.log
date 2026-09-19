@@ -1,0 +1,28 @@
+2026-09-19 14:18:32,272 | INFO | Kaggle: checking authentication for user mishashalagin ...
+2026-09-19 14:18:51,439 | INFO | Kaggle: connection and authentication succeeded.
+2026-09-19 14:18:51,440 | INFO | [1/7] Researching Wikipedia: Строительство крепости Свияжск в 1551 году
+2026-09-19 14:18:59,659 | INFO | [2/7] Validating 0 reference image(s)
+2026-09-19 14:18:59,660 | INFO | [3/7] Extracting source-grounded historical facts
+2026-09-19 14:18:59,663 | INFO | Kaggle [mishashalagin/historical-panorama-fact-extractor]: uploading and starting kernel ...
+2026-09-19 14:18:59,663 | INFO | Kaggle [mishashalagin/historical-panorama-fact-extractor]: requested accelerator=NvidiaTeslaT4
+2026-09-19 14:19:02,183 | INFO | Kaggle [mishashalagin/historical-panorama-fact-extractor]: upload accepted: Kernel version 15 successfully pushed. Please check progress at https://www.kaggle.com/code/mishashalagin/historical-panorama-fact-extractor
+2026-09-19 14:19:03,051 | INFO | Kaggle [mishashalagin/historical-panorama-fact-extractor]: status=queued
+2026-09-19 14:19:19,004 | INFO | Kaggle [mishashalagin/historical-panorama-fact-extractor]: status=running
+2026-09-19 14:23:14,296 | WARNING | Kaggle [mishashalagin/historical-panorama-fact-extractor]: status request failed (1/5): Command timed out: /home/maki/ml/projs/PiplineGenHistImg/.venv/bin/python -m historical_panorama.kaggle_cli_ipv4
+2026-09-19 14:24:01,055 | INFO | Kaggle [mishashalagin/historical-panorama-fact-extractor]: status=complete
+2026-09-19 14:24:01,056 | INFO | Kaggle [mishashalagin/historical-panorama-fact-extractor]: downloading response ...
+2026-09-19 14:24:02,657 | INFO | Kaggle [mishashalagin/historical-panorama-fact-extractor]: response received successfully (['analysis.json']).
+2026-09-19 14:24:02,658 | INFO | [4/7] Building the grounded panorama prompt
+2026-09-19 14:24:02,660 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: uploading and starting kernel ...
+2026-09-19 14:24:02,660 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: requested accelerator=NvidiaTeslaT4
+2026-09-19 14:24:04,745 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: upload accepted: Kernel version 9 successfully pushed. Please check progress at https://www.kaggle.com/code/mishashalagin/historical-panorama-prompt-builder
+2026-09-19 14:24:06,074 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: status=running
+2026-09-19 14:27:47,093 | WARNING | Kaggle [mishashalagin/historical-panorama-prompt-builder]: status request failed (1/5): Command timed out: /home/maki/ml/projs/PiplineGenHistImg/.venv/bin/python -m historical_panorama.kaggle_cli_ipv4
+2026-09-19 14:28:06,734 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: status=complete
+2026-09-19 14:28:06,734 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: downloading response ...
+2026-09-19 14:32:32,521 | WARNING | Kaggle [mishashalagin/historical-panorama-prompt-builder]: response download failed (1/5): Kaggle command failed (1): HTTPSConnectionPool(host='api.kaggle.com', port=443): Max retries exceeded with url: /v1/kernels.KernelsApiService/ListKernelSessionOutput (Caused by ConnectTimeoutError(<HTTPSConnection(host='api.kaggle.com', port=443) at 0x7f663c4a0050>, 'Connection to api.kaggle.com timed out. (connect timeout=None)'))
+2026-09-19 14:35:08,752 | INFO | Kaggle [mishashalagin/historical-panorama-prompt-builder]: response received successfully (['prompt.json']).
+2026-09-19 14:35:08,754 | INFO | [5/7] Generating panorama attempt 1/3
+2026-09-19 14:35:08,755 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: uploading and starting kernel ...
+2026-09-19 14:35:08,755 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: requested accelerator=NvidiaTeslaT4
+2026-09-19 14:35:09,755 | ERROR | Pipeline failed: Kaggle command failed (1): 400 Client Error: Bad Request for url: https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel

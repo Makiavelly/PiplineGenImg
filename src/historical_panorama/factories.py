@@ -5,9 +5,23 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar, cast
 
-from .interfaces import ImageGenerator, InformationProvider, PromptBuilder
+from .interfaces import (
+    HistoricalFactExtractor,
+    ImageGenerator,
+    InformationProvider,
+    PromptBuilder,
+    VisualValidator,
+)
 from .kaggle_runner import KaggleKernelRunner, KaggleSettings
-from .providers import KaggleImageGenerator, KagglePromptBuilder, WikipediaInformationProvider
+from .providers import (
+    KaggleHistoricalFactExtractor,
+    KaggleImageGenerator,
+    KaggleSD35ImageGenerator,
+    KagglePromptBuilder,
+    KaggleVisualValidator,
+    WikipediaInformationProvider,
+)
+from .visual_validation import UnavailableVisualValidator
 
 T = TypeVar("T")
 ProviderConfig = Mapping[str, Any]
@@ -53,6 +67,7 @@ class FactoryContext:
                 poll_interval_seconds=int(config.get("poll_interval_seconds", 15)),
                 timeout_seconds=int(config.get("timeout_seconds", 1800)),
                 work_dir=Path(config.get("work_dir", ".kaggle-work")),
+                force_ipv4=bool(config.get("force_ipv4", False)),
             )
         )
         self.connection_checks.add(self._kaggle_runner)
@@ -102,8 +117,17 @@ class FactoryRegistry(Generic[T]):
 
 
 information_provider_factories = FactoryRegistry[InformationProvider]("information")
+fact_extractor_factories = FactoryRegistry[HistoricalFactExtractor]("fact extractor")
 prompt_builder_factories = FactoryRegistry[PromptBuilder]("prompt builder")
 image_generator_factories = FactoryRegistry[ImageGenerator]("image generator")
+visual_validator_factories = FactoryRegistry[VisualValidator]("visual validator")
+
+
+@visual_validator_factories.register("unavailable")
+def build_unavailable_visual_validator(
+    config: ProviderConfig, context: FactoryContext
+) -> VisualValidator:
+    return UnavailableVisualValidator()
 
 
 @information_provider_factories.register("wikipedia")
@@ -112,6 +136,21 @@ def build_wikipedia(config: ProviderConfig, _: FactoryContext) -> InformationPro
         language=str(config.get("language", "ru")),
         max_results=int(config.get("max_results", 5)),
         timeout_seconds=int(config.get("timeout_seconds", 20)),
+        max_related_articles=int(config.get("max_related_articles", 6)),
+    )
+
+
+@fact_extractor_factories.register("kaggle")
+def build_kaggle_fact_extractor(
+    config: ProviderConfig, context: FactoryContext
+) -> HistoricalFactExtractor:
+    return KaggleHistoricalFactExtractor(
+        context.kaggle_runner(),
+        str(config["kernel_slug"]),
+        str(config["model_id"]),
+        accelerator=cast(str | None, config.get("accelerator")),
+        load_in_4bit=bool(config.get("load_in_4bit", False)),
+        max_new_tokens=int(config.get("max_new_tokens", 1400)),
     )
 
 
@@ -122,6 +161,7 @@ def build_kaggle_prompt(config: ProviderConfig, context: FactoryContext) -> Prom
         str(config["kernel_slug"]),
         str(config["model_id"]),
         accelerator=cast(str | None, config.get("accelerator")),
+        load_in_4bit=bool(config.get("load_in_4bit", False)),
     )
 
 
@@ -139,3 +179,33 @@ def build_kaggle_image(config: ProviderConfig, context: FactoryContext) -> Image
         **options,
     )
 
+
+@image_generator_factories.register("kaggle_sd35")
+def build_kaggle_sd35_image(
+    config: ProviderConfig, context: FactoryContext
+) -> ImageGenerator:
+    options = {
+        key: value
+        for key, value in config.items()
+        if key not in {"provider", "kernel_slug", "model_id"}
+    }
+    return KaggleSD35ImageGenerator(
+        context.kaggle_runner(),
+        str(config["kernel_slug"]),
+        str(config["model_id"]),
+        **options,
+    )
+
+
+@visual_validator_factories.register("kaggle")
+def build_kaggle_visual_validator(
+    config: ProviderConfig, context: FactoryContext
+) -> VisualValidator:
+    return KaggleVisualValidator(
+        context.kaggle_runner(),
+        str(config["kernel_slug"]),
+        str(config["model_id"]),
+        accelerator=cast(str | None, config.get("accelerator")),
+        max_input_size=int(config.get("max_input_size", 384)),
+        max_new_tokens=int(config.get("max_new_tokens", 1600)),
+    )

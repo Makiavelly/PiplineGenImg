@@ -8,7 +8,10 @@ version = "0.1.0"
 description = "Provider-agnostic pipeline for historical 360-degree panoramas"
 requires-python = ">=3.11"
 dependencies = [
+  "beautifulsoup4>=4.12,<5",
+  "jsonschema>=4.22,<5",
   "kaggle>=1.7",
+  "numpy>=1.26,<3",
   "Pillow>=10.2,<12",
   "PyYAML>=6.0,<7",
   "requests>=2.31,<3",
