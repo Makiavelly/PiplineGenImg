@@ -32,7 +32,14 @@ if not torch.cuda.is_available():
 
 
 def huggingface_token():
-    """Read gated-model credentials from Kaggle Secrets without embedding them in the kernel."""
+    """Use the private request credential, with Kaggle Secrets as a fallback."""
+    token = str(REQUEST.get("hf_token", "")).strip()
+    if token:
+        if not token.startswith("hf_"):
+            raise RuntimeError(
+                "The Hugging Face token supplied with the private request is malformed"
+            )
+        return token
     try:
         from kaggle_secrets import UserSecretsClient
 
@@ -41,9 +48,9 @@ def huggingface_token():
         token = os.getenv("HF_TOKEN")
         if not token:
             raise RuntimeError(
-                "HF_TOKEN is not available to this Kaggle notebook. Open the "
-                "historical-panorama-sd35-generator notebook, add or enable the HF_TOKEN "
-                f"secret for it, and rerun. Kaggle Secrets error: {type(exc).__name__}"
+                "HF_TOKEN was neither supplied by the private pipeline request nor "
+                "available as a Kaggle Secret. Add HF_TOKEN to the local .env and rerun. "
+                f"Kaggle Secrets error: {type(exc).__name__}"
             ) from exc
     if not token or not token.startswith("hf_"):
         raise RuntimeError(
@@ -82,8 +89,8 @@ except OSError as exc:
 
 # A T4 cannot keep the transformer and all three text encoders in VRAM together.
 pipe.enable_model_cpu_offload()
-pipe.enable_vae_slicing()
-pipe.enable_vae_tiling()
+pipe.vae.enable_slicing()
+pipe.vae.enable_tiling()
 
 seed = int(REQUEST.get("seed", 42))
 steps = int(REQUEST.get("steps", 28))

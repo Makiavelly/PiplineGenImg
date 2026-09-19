@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 import re
 import shutil
 import time
@@ -419,6 +420,7 @@ class KaggleImageGenerator:
                 "model_id": self.model_id,
                 **self.options,
                 "seed": int(prompt.metadata.get("seed", self.options.get("seed", 42))),
+                **self._private_payload(),
             },
             expected_files=["panorama.png", "generation.json"],
             accelerator=self.accelerator,
@@ -450,6 +452,10 @@ class KaggleImageGenerator:
         )
         return ImageResult(path=destination, metadata=metadata)
 
+    def _private_payload(self) -> dict[str, object]:
+        """Credentials needed by a private remote kernel, never copied to metadata."""
+        return {}
+
 
 class KaggleSD35ImageGenerator(KaggleImageGenerator):
     """Stable Diffusion 3.5 Medium on Kaggle with T4-compatible CPU offload."""
@@ -458,3 +464,17 @@ class KaggleSD35ImageGenerator(KaggleImageGenerator):
     # Kaggle requires the title-derived slug to match a new kernel id.
     kernel_title = "Historical panorama sd35 generator"
     provider_name = "kaggle_sd35"
+
+    def __init__(self, runner: KaggleKernelRunner, kernel_slug: str, model_id: str, **options):
+        self.hf_token_env = str(options.pop("hf_token_env", "HF_TOKEN"))
+        super().__init__(runner, kernel_slug, model_id, **options)
+
+    def _private_payload(self) -> dict[str, object]:
+        token = os.getenv(self.hf_token_env, "").strip()
+        if not token:
+            return {}
+        if not token.startswith("hf_"):
+            raise KaggleError(
+                f"{self.hf_token_env} does not look like a Hugging Face user token"
+            )
+        return {"hf_token": token}

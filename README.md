@@ -55,11 +55,13 @@ cp .env.example .env
 
 1. войдите в Hugging Face и примите условия на странице модели;
 2. создайте read-token Hugging Face;
-3. в настройках Kaggle добавьте секрет с именем `HF_TOKEN` и разрешите notebook доступ
-   к нему.
+3. добавьте `HF_TOKEN=hf_...` в локальный `.env`.
 
-Не добавляйте `HF_TOKEN` в `config.yaml`: Kaggle kernel читает его через Kaggle Secrets,
-поэтому значение не попадает в загружаемый скрипт или журнал.
+Kaggle API не переносит разрешения Kaggle Secrets в загружаемые script kernels стабильно.
+Поэтому pipeline передаёт `HF_TOKEN` внутрь приватного kernel-запроса. Значение не попадает
+в `config.yaml`, отчёты или логи, но присутствует в исходнике приватной версии Kaggle.
+Используйте fine-grained read-token, не делайте notebook публичным и отзовите токен при
+подозрении на утечку.
 
 Проверка подключения:
 

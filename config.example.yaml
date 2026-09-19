@@ -34,6 +34,7 @@ image_generator:
   provider: kaggle_sd35
   kernel_slug: historical-panorama-sd35-generator
   model_id: stabilityai/stable-diffusion-3.5-medium
+  hf_token_env: HF_TOKEN
   accelerator: NvidiaTeslaT4
   width: 1536
   height: 768

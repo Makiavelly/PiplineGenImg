@@ -1,13 +1,26 @@
-2026-09-19 15:56:30,886 | INFO | Kaggle: checking authentication for user mishashalagin ...
-2026-09-19 15:56:32,297 | INFO | Kaggle: connection and authentication succeeded.
-2026-09-19 15:56:32,297 | INFO | [resume] Reusing Wikipedia materials
-2026-09-19 15:56:32,297 | INFO | [resume] Reusing reference report
-2026-09-19 15:56:32,298 | INFO | [resume] Reusing structured historical analysis
-2026-09-19 15:56:32,298 | INFO | [resume] Reusing generated prompt
-2026-09-19 15:56:32,298 | INFO | [5/7] Generating panorama attempt 1/3
-2026-09-19 15:56:33,879 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: uploading and starting kernel ...
-2026-09-19 15:56:33,879 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: requested accelerator=NvidiaTeslaT4
-2026-09-19 15:56:36,062 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: upload accepted: Kernel version 5 successfully pushed. Please check progress at https://www.kaggle.com/code/mishashalagin/historical-panorama-sd35-generator
-2026-09-19 15:56:37,206 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: status=running
-2026-09-19 15:58:14,266 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: status=error
-2026-09-19 15:58:15,290 | ERROR | Pipeline failed: Kaggle kernel failed with status=error. Log tail: ,{"stream_name":"stderr","time":69.612690379,"data":"    token = huggingface_token()\n"} | ,{"stream_name":"stderr","time":69.612746776,"data":"            ^^^^^^^^^^^^^^^^^^^\n"} | ,{"stream_name":"stderr","time":69.612783129,"data":"  File \"/kaggle/src/script.py\", line 43, in huggingface_token\n"} | ,{"stream_name":"stderr","time":69.612921576,"data":"    raise RuntimeError(\n"} | ,{"stream_name":"stderr","time":69.612934701,"data":"RuntimeError: HF_TOKEN is not available to this Kaggle notebook. Open the historical-panorama-sd35-generator notebook, add or enable the HF_TOKEN secret for it, and rerun. Kaggle Secrets error: ConnectionError\n"} | ,{"stream_name":"stderr","time":75.534394496,"data":"/usr/local/lib/python3.12/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\\|'\n"} | ,{"stream_name":"stderr","time":75.534432603,"data":"  cells[i][c] = re.sub('\\\\\\\\\\|', '|', cell)\n"} | ,{"stream_name":"stderr","time":75.785755311,"data":"/usr/local/lib/python3.12/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\\_'\n"} | ,{"stream_name":"stderr","time":75.785785878,"data":"  text = re.sub(r'_', '\\_', text) # Escape underscores in display text\n"} | ,{"stream_name":"stderr","time":76.526350441,"data":"[NbConvertApp] Converting notebook __script__.ipynb to html\n"} | ,{"stream_name":"stderr","time":77.392348394,"data":"[NbConvertApp] Writing 298462 bytes to __results__.html\n"} | ]
+2026-09-19 17:04:04,495 | INFO | Kaggle: checking authentication for user mishashalagin ...
+2026-09-19 17:04:05,678 | INFO | Kaggle: connection and authentication succeeded.
+2026-09-19 17:04:05,678 | INFO | [resume] Reusing Wikipedia materials
+2026-09-19 17:04:05,678 | INFO | [resume] Reusing reference report
+2026-09-19 17:04:05,679 | INFO | [resume] Reusing structured historical analysis
+2026-09-19 17:04:05,679 | INFO | [resume] Reusing generated prompt
+2026-09-19 17:04:05,679 | INFO | [5/7] Generating panorama attempt 1/3
+2026-09-19 17:04:05,680 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: uploading and starting kernel ...
+2026-09-19 17:04:05,680 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: requested accelerator=NvidiaTeslaT4
+2026-09-19 17:04:07,687 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: upload accepted: Kernel version 11 successfully pushed. Please check progress at https://www.kaggle.com/code/mishashalagin/historical-panorama-sd35-generator
+2026-09-19 17:04:08,938 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: status=running
+2026-09-19 17:08:56,666 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: status=complete
+2026-09-19 17:08:56,666 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: downloading response ...
+2026-09-19 17:08:59,888 | INFO | Kaggle [mishashalagin/historical-panorama-sd35-generator]: response received successfully (['panorama.png', 'generation.json']).
+2026-09-19 17:08:59,896 | INFO | [6/7] Running deterministic technical validation
+2026-09-19 17:09:01,031 | INFO | [7/7] Running visual/historical validation
+2026-09-19 17:09:01,144 | INFO | Kaggle [mishashalagin/historical-panorama-visual-validator]: uploading and starting kernel ...
+2026-09-19 17:09:01,145 | INFO | Kaggle [mishashalagin/historical-panorama-visual-validator]: requested accelerator=NvidiaTeslaT4
+2026-09-19 17:09:03,909 | INFO | Kaggle [mishashalagin/historical-panorama-visual-validator]: upload accepted: Kernel version 3 successfully pushed. Please check progress at https://www.kaggle.com/code/mishashalagin/historical-panorama-visual-validator
+2026-09-19 17:09:04,773 | INFO | Kaggle [mishashalagin/historical-panorama-visual-validator]: status=queued
+2026-09-19 17:09:20,733 | INFO | Kaggle [mishashalagin/historical-panorama-visual-validator]: status=running
+2026-09-19 17:12:17,544 | INFO | Kaggle [mishashalagin/historical-panorama-visual-validator]: status=complete
+2026-09-19 17:12:17,544 | INFO | Kaggle [mishashalagin/historical-panorama-visual-validator]: downloading response ...
+2026-09-19 17:12:19,024 | INFO | Kaggle [mishashalagin/historical-panorama-visual-validator]: response received successfully (['visual_validation.json']).
+2026-09-19 17:12:19,027 | INFO | Pipeline finished with status=accepted: runs/20260919T113834Z-e25e89fd-строительство-крепости-свияжск-в-1551-году/panorama.png
+runs/20260919T113834Z-e25e89fd-строительство-крепости-свияжск-в-1551-году/panorama.png
