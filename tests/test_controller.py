@@ -9,7 +9,7 @@ from historical_panorama.models import (
 
 def failed_technical():
     return TechnicalValidationReport("failed", [
-        ValidationCheck("seam_color", 100, 45, "failed", "visible color discontinuity")
+        ValidationCheck("aspect_ratio_2_to_1", 1.5, 2.0, "failed", "wrong aspect ratio")
     ])
 
 
@@ -19,7 +19,7 @@ def test_controller_adds_concrete_correction_for_regeneration():
         supports_inpainting=False,
     )
     assert decision.status == "retry_full_generation"
-    assert "seam" in decision.correction
+    assert "2:1" in decision.correction
 
 
 def test_controller_uses_inpainting_only_for_supported_local_issue():

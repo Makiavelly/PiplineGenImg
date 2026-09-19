@@ -19,6 +19,10 @@ from .providers import (
     KaggleSD35ImageGenerator,
     KagglePromptBuilder,
     KaggleVisualValidator,
+    OpenAICompatibleClient,
+    OpenAICompatibleHistoricalFactExtractor,
+    OpenAICompatibleImageGenerator,
+    OpenAICompatiblePromptBuilder,
     WikipediaInformationProvider,
 )
 from .visual_validation import UnavailableVisualValidator
@@ -53,6 +57,7 @@ class FactoryContext:
         self.root_config = root_config
         self.connection_checks = ConnectionChecks()
         self._kaggle_runner: KaggleKernelRunner | None = None
+        self._compatible_clients: dict[tuple[str, str, int], OpenAICompatibleClient] = {}
 
     def kaggle_runner(self) -> KaggleKernelRunner:
         if self._kaggle_runner is not None:
@@ -72,6 +77,24 @@ class FactoryContext:
         )
         self.connection_checks.add(self._kaggle_runner)
         return self._kaggle_runner
+
+    def compatible_client(self, provider_config: ProviderConfig) -> OpenAICompatibleClient:
+        common = cast(ProviderConfig, self.root_config.get("openai_compatible", {}))
+        base_url = str(
+            provider_config.get(
+                "base_url", common.get("base_url", "https://api.openai.com/v1")
+            )
+        )
+        token_env = str(provider_config.get("token_env", common.get("token_env", "GPT_TOKEN")))
+        timeout = int(
+            provider_config.get("timeout_seconds", common.get("timeout_seconds", 300))
+        )
+        key = (base_url, token_env, timeout)
+        if key not in self._compatible_clients:
+            client = OpenAICompatibleClient(base_url, token_env, timeout)
+            self._compatible_clients[key] = client
+            self.connection_checks.add(client)
+        return self._compatible_clients[key]
 
 
 Factory = Callable[[ProviderConfig, FactoryContext], T]
@@ -154,6 +177,20 @@ def build_kaggle_fact_extractor(
     )
 
 
+@fact_extractor_factories.register("openai_compatible")
+@fact_extractor_factories.register("tooken")
+def build_compatible_fact_extractor(
+    config: ProviderConfig, context: FactoryContext
+) -> HistoricalFactExtractor:
+    return OpenAICompatibleHistoricalFactExtractor(
+        context.compatible_client(config),
+        str(config["model_id"]),
+        max_context_characters=int(config.get("max_context_characters", 120_000)),
+        max_source_characters=int(config.get("max_source_characters", 12_000)),
+        max_output_tokens=int(config.get("max_output_tokens", 5_000)),
+    )
+
+
 @prompt_builder_factories.register("kaggle")
 def build_kaggle_prompt(config: ProviderConfig, context: FactoryContext) -> PromptBuilder:
     return KagglePromptBuilder(
@@ -162,6 +199,18 @@ def build_kaggle_prompt(config: ProviderConfig, context: FactoryContext) -> Prom
         str(config["model_id"]),
         accelerator=cast(str | None, config.get("accelerator")),
         load_in_4bit=bool(config.get("load_in_4bit", False)),
+    )
+
+
+@prompt_builder_factories.register("openai_compatible")
+@prompt_builder_factories.register("tooken")
+def build_compatible_prompt_builder(
+    config: ProviderConfig, context: FactoryContext
+) -> PromptBuilder:
+    return OpenAICompatiblePromptBuilder(
+        context.compatible_client(config),
+        str(config["model_id"]),
+        max_output_tokens=int(config.get("max_output_tokens", 1_500)),
     )
 
 
@@ -194,6 +243,28 @@ def build_kaggle_sd35_image(
         str(config["kernel_slug"]),
         str(config["model_id"]),
         **options,
+    )
+
+
+@image_generator_factories.register("openai_compatible")
+@image_generator_factories.register("tooken")
+def build_compatible_image(
+    config: ProviderConfig, context: FactoryContext
+) -> ImageGenerator:
+    options = {
+        key: value
+        for key, value in config.items()
+        if key
+        not in {
+            "provider",
+            "model_id",
+            "base_url",
+            "token_env",
+            "timeout_seconds",
+        }
+    }
+    return OpenAICompatibleImageGenerator(
+        context.compatible_client(config), str(config["model_id"]), **options
     )
 
 

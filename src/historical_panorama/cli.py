@@ -41,6 +41,24 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip the optional preflight and let the first provider request verify connectivity",
     )
+    result.add_argument(
+        "--visual-validation-runs",
+        type=int,
+        choices=range(0, 6),
+        metavar="0..5",
+        help=(
+            "Override multimodal visual checks per generated image; "
+            "0 disables visual validation"
+        ),
+    )
+    result.add_argument(
+        "--skip-technical-validation",
+        action="store_true",
+        help=(
+            "Disable local deterministic checks for file readability, dimensions, "
+            "and the exact 2:1 aspect ratio"
+        ),
+    )
     return result
 
 
@@ -48,7 +66,13 @@ def main() -> None:
     args = parser().parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
     try:
-        pipeline, connection_checks = build_pipeline(args.config)
+        pipeline, connection_checks = build_pipeline(
+            args.config,
+            visual_validation_runs_override=args.visual_validation_runs,
+            technical_validation_enabled_override=(
+                False if args.skip_technical_validation else None
+            ),
+        )
         if not args.skip_connection_check:
             connection_checks.check_connection()
         if args.check_connections:

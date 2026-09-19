@@ -3,7 +3,9 @@ import pytest
 from historical_panorama.factories import (
     FactoryContext,
     FactoryRegistry,
+    fact_extractor_factories,
     image_generator_factories,
+    prompt_builder_factories,
     visual_validator_factories,
 )
 
@@ -53,3 +55,7 @@ def test_visual_validator_registry_has_kaggle_and_fallback():
 def test_image_generator_registry_has_sdxl_and_sd35():
     assert "kaggle" in image_generator_factories.names
     assert "kaggle_sd35" in image_generator_factories.names
+    assert "tooken" in image_generator_factories.names
+    assert "openai_compatible" in image_generator_factories.names
+    assert "tooken" in fact_extractor_factories.names
+    assert "tooken" in prompt_builder_factories.names

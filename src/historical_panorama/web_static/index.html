@@ -10,9 +10,8 @@
 <body>
   <div class="grain"></div>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Panorama Pipeline">
-      <span class="brand-mark">P</span>
-      <span>Panorama <em>Pipeline</em></span>
+    <a class="brand" href="/" aria-label="Admin Panel Pipeline">
+      <span>Admin Panel <em>Pipeline</em></span>
     </a>
   </header>
 
@@ -20,21 +19,25 @@
     <section class="workspace">
       <div class="panel configurator">
         <div class="section-head">
-          <div><span class="step-number">01</span><h2>Конфигурация</h2></div>
+          <h2>Конфигурация</h2>
           <button class="text-button" id="resetButton" type="button">Сбросить</button>
         </div>
         <div id="stageList" class="stage-list" aria-live="polite">
           <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
         </div>
+
+        <div class="visual-validation-settings">
+          <label><input id="technicalValidationEnabled" type="checkbox" checked> Включить локальную техническую проверку</label>
+          <label><input id="visualValidationEnabled" type="checkbox" checked> Включить визуальную и историческую проверку</label>
+          <label for="visualValidationRuns">Количество независимых проверок</label>
+          <input id="visualValidationRuns" type="number" min="1" max="5" value="1">
+          <small>Техническая проверка проверяет файл, декодирование, размеры и соотношение 2:1.</small>
+        </div>
       </div>
 
       <div class="right-column">
         <form class="panel launch-panel" id="launchForm">
-          <div class="section-head">
-            <div><span class="step-number">02</span><h2>Новый запуск</h2></div>
-          </div>
-
-          <label class="field-label" for="eventInput">Историческое событие или сцена</label>
+          <label class="field-label prompt-title" for="eventInput">Промпт</label>
           <div class="prompt-wrap">
             <textarea id="eventInput" rows="4" required maxlength="1000" placeholder="Например: Строительство крепости Свияжск в 1551 году, летнее утро, вид с торговой площади"></textarea>
             <span><b id="charCount">0</b> / 1000</span>
@@ -59,6 +62,7 @@
               <label><span>Kaggle username</span><input id="kaggleUsername" autocomplete="username" placeholder="username"></label>
               <label><span>Kaggle API token</span><input id="kaggleToken" type="password" autocomplete="off" placeholder="••••••••••••"></label>
               <label class="wide"><span>Hugging Face token</span><input id="hfToken" type="password" autocomplete="off" placeholder="hf_••••••••••••••••"></label>
+              <label class="wide"><span>Tooken Club API token</span><input id="gptToken" type="password" autocomplete="off" placeholder="tc_live_••••••••••••"></label>
             </div>
           </div>
 
@@ -98,8 +102,6 @@
       <div id="resultWarnings" class="result-warnings hidden"></div>
     </section>
   </main>
-
-  <footer><span>Historical Panorama Pipeline</span><span>Provider-agnostic architecture</span></footer>
   <script src="/app.js" defer></script>
 </body>
 </html>

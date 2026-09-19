@@ -6,6 +6,12 @@ from .kaggle import (
     KaggleVisualValidator,
 )
 from .wikipedia import WikipediaInformationProvider
+from .openai_compatible import (
+    OpenAICompatibleClient,
+    OpenAICompatibleHistoricalFactExtractor,
+    OpenAICompatibleImageGenerator,
+    OpenAICompatiblePromptBuilder,
+)
 
 __all__ = [
     "KaggleHistoricalFactExtractor",
@@ -14,4 +20,8 @@ __all__ = [
     "KagglePromptBuilder",
     "KaggleVisualValidator",
     "WikipediaInformationProvider",
+    "OpenAICompatibleClient",
+    "OpenAICompatibleHistoricalFactExtractor",
+    "OpenAICompatibleImageGenerator",
+    "OpenAICompatiblePromptBuilder",
 ]
