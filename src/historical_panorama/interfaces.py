@@ -27,6 +27,8 @@ class PromptBuilder(Protocol):
 
 
 class ImageGenerator(Protocol):
+    supports_image_conditioning: bool
+
     def generate(self, prompt: PromptResult, output_dir: Path, run_id: str) -> ImageResult: ...
 
 
