@@ -20,27 +20,22 @@ flowchart TD
     C --> H
     G --> H
 
-    H["Извлечение исторических фактов<br/><b>Qwen/Qwen2.5-7B-Instruct</b><br/>4-bit NF4, Kaggle GPU T4"]
-    H --> I["Строгая JSON Schema<br/>lm-format-enforcer"]
+    H["Извлечение исторических фактов<br/><b>gpt-5.6-sol</b><br/>Tooken Responses API<br/>до 120000 символов контекста"]
+    H --> I["Строгая JSON Schema<br/>локальная валидация + correction retry<br/>проверка ссылок на Wikipedia"]
     I --> J["Структурированные факты<br/>analysis.json + constraints.json"]
 
     J --> K
     G --> K
 
-    K["Создание промпта<br/><b>Qwen/Qwen2.5-7B-Instruct</b><br/>4-bit NF4, Kaggle GPU T4"]
+    K["Создание промпта<br/><b>gpt-5.6-sol</b><br/>Tooken Responses API"]
     K --> L["Основной prompt на английском<br/>negative prompt<br/>prompt.json"]
 
-    L --> M["Генерация панорамы<br/><b>stabilityai/stable-diffusion-3.5-medium</b><br/>StableDiffusion3Pipeline<br/>FP16 + CPU offload<br/>Kaggle GPU T4"]
-    HF["Hugging Face gated access<br/>Kaggle Secret: HF_TOKEN"] --> M
+    L --> M["Генерация панорамы<br/><b>gpt-image-2</b><br/>Tooken Images API<br/>явный equirectangular 360° prompt"]
 
-    M --> N["Прямая equirectangular-генерация<br/>1536×768 → 2048×1024<br/>panorama.png"]
+    M --> N["Landscape 1536×1024<br/>центрирование в 2:1 → 2048×1024<br/>original.png + panorama.png"]
 
-    N --> O["Техническая проверка<br/><b>Модель не используется</b><br/>Pillow + NumPy + OpenCV"]
-    O --> O1["2:1 и размеры"]
-    O --> O2["Чёрные/пустые области"]
-    O --> O3["Размытие"]
-    O --> O4["Цвет и яркость шва"]
-    O --> O5["Непрерывность горизонта"]
+    N --> O["Техническая проверка<br/><b>Модель не используется</b><br/>Pillow"]
+    O --> O1["Наличие, декодирование,<br/>размеры и 2:1"]
 
     N --> P["Преобразование в perspective-кадры<br/><b>Модель не используется</b><br/>Локальная сферическая проекция"]
     P --> P1["Yaw: 0°, 45° ... 315°<br/>Pitch: 0°, +60°, −60°"]
@@ -57,10 +52,6 @@ flowchart TD
     Q --> Q5["Согласованность соседних кадров"]
 
     O1 --> S["RetryController<br/><b>Модель не используется</b>"]
-    O2 --> S
-    O3 --> S
-    O4 --> S
-    O5 --> S
     Q1 --> S
     Q2 --> S
     Q3 --> S
@@ -78,17 +69,25 @@ flowchart TD
 
 | Назначение | Модель | Запуск |
 |---|---|---|
-| Извлечение исторических фактов | `Qwen/Qwen2.5-7B-Instruct` | Kaggle, T4, 4-bit NF4 |
-| Создание промпта | `Qwen/Qwen2.5-7B-Instruct` | Kaggle, T4, 4-bit NF4 |
-| Генерация панорамы | `stabilityai/stable-diffusion-3.5-medium` | Kaggle, T4, FP16 + CPU offload |
+| Извлечение исторических фактов | `gpt-5.6-sol` | Tooken Club, Responses API |
+| Создание промпта | `gpt-5.6-sol` | Tooken Club, Responses API |
+| Генерация панорамы | `gpt-image-2` | Tooken Club, Images API |
 | Анализ референсов | `Qwen/Qwen2.5-VL-3B-Instruct` | Kaggle, T4 |
 | Визуальная и историческая проверка | `Qwen/Qwen2.5-VL-3B-Instruct` | Kaggle, T4 |
+
+Число мультимодальных проверок задаётся `pipeline.visual_validation_runs`: `0` отключает
+их, значения `1–5` запускают указанное количество независимых проверок каждой попытки.
+Детерминированную техническую проверку можно отключить параметром
+`pipeline.technical_validation_enabled` или флагом `--skip-technical-validation`.
 
 ## Этапы без моделей
 
 - Поиск и парсинг Википедии — `WikipediaInformationProvider` и MediaWiki API.
 - Проверка файлов референсов — Pillow.
-- Проверка размеров, размытия и шва — Pillow, NumPy и OpenCV.
+- Проверка наличия, читаемости, размеров и 2:1 — Pillow.
 - Создание perspective-кадров — локальная сферическая проекция.
 - Решение о повторной генерации — `RetryController`, максимум три полные генерации.
 - Сохранение и восстановление — JSON-артефакты, `state.json` и параметр `--resume`.
+
+Kaggle-провайдеры `Qwen/Qwen2.5-7B-Instruct`, SDXL и Stable Diffusion 3.5 Medium
+остаются зарегистрированными альтернативами и выбираются независимо в YAML или Admin UI.

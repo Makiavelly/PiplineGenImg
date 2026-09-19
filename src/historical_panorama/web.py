@@ -39,19 +39,26 @@ PROVIDER_PRESETS: dict[str, dict[str, dict[str, Any]]] = {
     },
     "fact_extractor": {
         "kaggle": {"label": "Kaggle · Qwen 2.5", "description": "GPU notebook · 4-bit NF4"},
+        "tooken": {"label": "Tooken · GPT 5.6", "description": "Большой контекст · Responses API"},
     },
     "prompt_builder": {
         "kaggle": {"label": "Kaggle · Qwen 2.5", "description": "Структурированный image prompt"},
+        "tooken": {"label": "Tooken · GPT 5.6", "description": "Структурированный image prompt"},
     },
     "image_generator": {
         "kaggle_sd35": {
             "label": "Kaggle · SD 3.5",
-            "description": "Stable Diffusion 3.5 Medium · только текст",
+            "description": "Stable Diffusion 3.5 Medium · текущий kernel только text-to-image",
             "supports_images": False,
         },
         "kaggle": {
             "label": "Kaggle · SDXL",
-            "description": "Совместимый Kaggle image kernel · только текст",
+            "description": "SDXL text-to-image · текущий kernel не передаёт референсы",
+            "supports_images": False,
+        },
+        "tooken": {
+            "label": "Tooken · GPT Image 2",
+            "description": "gpt-image-2 · Tooken /images/generations, без image input",
             "supports_images": False,
         },
     },
@@ -64,6 +71,27 @@ MAX_UPLOADS = 4
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 UPLOAD_FORMATS = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}
 PROVIDER_CONFIGS: dict[tuple[str, str], dict[str, Any]] = {
+    ("fact_extractor", "tooken"): {
+        "provider": "tooken",
+        "model_id": "gpt-5.6-sol",
+        "max_context_characters": 120000,
+        "max_source_characters": 12000,
+        "max_output_tokens": 5000,
+    },
+    ("prompt_builder", "tooken"): {
+        "provider": "tooken",
+        "model_id": "gpt-5.6-sol",
+        "max_output_tokens": 1500,
+    },
+    ("image_generator", "tooken"): {
+        "provider": "tooken",
+        "model_id": "gpt-image-2",
+        "size": "1536x1024",
+        "quality": "high",
+        "output_width": 2048,
+        "output_height": 1024,
+        "seed": 42,
+    },
     ("image_generator", "kaggle"): {
         "provider": "kaggle",
         "kernel_slug": "historical-panorama-sdxl-generator",
@@ -102,7 +130,13 @@ def load_base_config(path: Path) -> dict[str, Any]:
     return config
 
 
-def configured_pipeline(base: dict[str, Any], selections: dict[str, str], output_dir: Path) -> dict[str, Any]:
+def configured_pipeline(
+    base: dict[str, Any],
+    selections: dict[str, str],
+    output_dir: Path,
+    visual_validation_runs: int | None = None,
+    technical_validation_enabled: bool | None = None,
+) -> dict[str, Any]:
     """Apply frontend selections without allowing arbitrary config injection."""
     config = deepcopy(base)
     for stage in STAGE_KEYS:
@@ -118,6 +152,23 @@ def configured_pipeline(base: dict[str, Any], selections: dict[str, str], output
             config[stage] = deepcopy(
                 PROVIDER_CONFIGS.get((stage, selected), {"provider": selected})
             )
+    if "tooken" in selections.values():
+        config.setdefault(
+            "openai_compatible",
+            {
+                "base_url": "https://tooken.club/v1",
+                "token_env": "GPT_TOKEN",
+                "timeout_seconds": 300,
+            },
+        )
+    if visual_validation_runs is not None:
+        pipeline = dict(config.get("pipeline", {}))
+        pipeline["visual_validation_runs"] = visual_validation_runs
+        config["pipeline"] = pipeline
+    if technical_validation_enabled is not None:
+        pipeline = dict(config.get("pipeline", {}))
+        pipeline["technical_validation_enabled"] = technical_validation_enabled
+        config["pipeline"] = pipeline
     config["output_dir"] = str(output_dir)
     return config
 
@@ -129,6 +180,8 @@ def required_credentials(selections: dict[str, str]) -> list[str]:
         required.extend(["kaggle_username", "kaggle_token"])
     if selections.get("image_generator") == "kaggle_sd35":
         required.append("hf_token")
+    if "tooken" in providers or "openai_compatible" in providers:
+        required.append("gpt_token")
     return required
 
 
@@ -259,7 +312,24 @@ class JobManager:
             selected = str(self.base_config.get(key, {}).get("provider", ""))
             providers = [dict(id=provider, **metadata) for provider, metadata in PROVIDER_PRESETS[key].items()]
             stages.append({"id": key, "label": STAGE_LABELS[key], "selected": selected, "providers": providers})
-        return {"stages": stages}
+        runs = int(self.base_config.get("pipeline", {}).get("visual_validation_runs", 1))
+        return {
+            "stages": stages,
+            "technical_validation": {
+                "enabled": bool(
+                    self.base_config.get("pipeline", {}).get(
+                        "technical_validation_enabled", True
+                    )
+                ),
+            },
+            "visual_validation": {
+                "enabled": runs > 0
+                and str(self.base_config.get("visual_validator", {}).get("provider", ""))
+                != "unavailable",
+                "runs": max(1, runs),
+                "max_runs": 5,
+            },
+        }
 
     def create(self, payload: dict[str, Any]) -> Job:
         event = str(payload.get("event", "")).strip()
@@ -275,6 +345,27 @@ class JobManager:
             )
             for stage in STAGE_KEYS
         }
+        visual_settings = payload.get("visual_validation", {})
+        if not isinstance(visual_settings, dict):
+            raise ValueError("Invalid visual validation settings")
+        visual_enabled = bool(
+            visual_settings.get(
+                "enabled", selections.get("visual_validator") != "unavailable"
+            )
+        )
+        try:
+            visual_runs = int(visual_settings.get("runs", 1))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Количество визуальных проверок должно быть целым числом") from exc
+        if visual_enabled and not 1 <= visual_runs <= 5:
+            raise ValueError("Количество визуальных проверок должно быть от 1 до 5")
+        if not visual_enabled or selections.get("visual_validator") == "unavailable":
+            selections["visual_validator"] = "unavailable"
+            visual_runs = 0
+        technical_settings = payload.get("technical_validation", {})
+        if not isinstance(technical_settings, dict):
+            raise ValueError("Invalid technical validation settings")
+        technical_enabled = bool(technical_settings.get("enabled", True))
         uploads = payload.get("images", [])
         if uploads and not image_provider_supports_uploads(selections["image_generator"]):
             raise ValueError(
@@ -290,7 +381,13 @@ class JobManager:
         output_dir = job_root / "runs"
         job_root.mkdir(parents=True, exist_ok=False)
         references_path = save_reference_uploads(job_root, uploads)
-        config = configured_pipeline(self.base_config, selections, output_dir)
+        config = configured_pipeline(
+            self.base_config,
+            selections,
+            output_dir,
+            visual_validation_runs=visual_runs,
+            technical_validation_enabled=technical_enabled,
+        )
         config_path = job_root / "config.yaml"
         config_path.write_text(yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8")
         job = Job(job_id, event, job_root)
@@ -324,6 +421,7 @@ class JobManager:
                 "KAGGLE_API_TOKEN": str(credentials.get("kaggle_token", "")),
                 "KAGGLE_KEY": str(credentials.get("kaggle_token", "")),
                 "HF_TOKEN": str(credentials.get("hf_token", "")),
+                "GPT_TOKEN": str(credentials.get("gpt_token", "")),
                 "PYTHONUNBUFFERED": "1",
             }
         )

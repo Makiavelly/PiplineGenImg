@@ -56,11 +56,51 @@ def test_web_configuration_rejects_unknown_provider(tmp_path: Path):
         configured_pipeline(base_config(), selections(prompt_builder="api_gpt"), tmp_path)
 
 
+def test_web_configuration_can_select_tooken_for_text_and_images(tmp_path: Path):
+    config = configured_pipeline(
+        base_config(),
+        selections(
+            fact_extractor="tooken",
+            prompt_builder="tooken",
+            image_generator="tooken",
+        ),
+        tmp_path,
+    )
+
+    assert config["fact_extractor"]["model_id"] == "gpt-5.6-sol"
+    assert config["fact_extractor"]["max_context_characters"] == 120000
+    assert config["image_generator"]["model_id"] == "gpt-image-2"
+    assert config["openai_compatible"]["base_url"] == "https://tooken.club/v1"
+
+
+def test_web_configuration_sets_visual_validation_count(tmp_path: Path):
+    config = configured_pipeline(base_config(), selections(), tmp_path, 4)
+
+    assert config["pipeline"]["visual_validation_runs"] == 4
+
+
+def test_web_configuration_can_disable_technical_validation(tmp_path: Path):
+    config = configured_pipeline(
+        base_config(), selections(), tmp_path,
+        technical_validation_enabled=False,
+    )
+
+    assert config["pipeline"]["technical_validation_enabled"] is False
+
+
 def test_required_credentials_follow_selected_providers():
     assert required_credentials(selections()) == ["kaggle_username", "kaggle_token", "hf_token"]
     assert required_credentials(selections(image_generator="kaggle")) == [
         "kaggle_username", "kaggle_token"
     ]
+    assert required_credentials(
+        selections(
+            fact_extractor="tooken",
+            prompt_builder="tooken",
+            image_generator="tooken",
+            visual_validator="unavailable",
+        )
+    ) == ["gpt_token"]
 
 
 def test_job_snapshot_reads_pipeline_progress_and_result(tmp_path: Path):

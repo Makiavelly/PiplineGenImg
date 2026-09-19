@@ -2,31 +2,32 @@
 
 Расширяемый конвейер прямой генерации исторической equirectangular-панорамы:
 
-`Wikipedia → структурированные факты → prompt → SD 3.5 Medium → Qwen2.5-VL + технические проверки → panorama.png`
+`Wikipedia → структурированные факты → prompt → генератор панорамы → визуальные и технические проверки → panorama.png`
 
-Текущая конфигурация использует только MediaWiki API как исторический источник. Две
-текстовые стадии на `Qwen/Qwen2.5-7B-Instruct` в 4-bit NF4, мультимодальная проверка на
-`Qwen/Qwen2.5-VL-3B-Instruct` и генерация `Stable Diffusion 3.5 Medium` выполняются в отдельных Kaggle kernels;
-модели локально не устанавливаются. Реализации выбираются через фабричные реестры в
-`historical_panorama.factories`.
+Текущая конфигурация использует MediaWiki API как исторический источник, `gpt-5.6-sol`
+через OpenAI-совместимый Tooken Club для двух текстовых стадий и `gpt-image-2` для
+изображения. Мультимодальная проверка остаётся на `Qwen/Qwen2.5-VL-3B-Instruct` в Kaggle.
+Kaggle-реализации Qwen, SDXL и Stable Diffusion 3.5 сохранены как альтернативы. Все
+реализации выбираются через фабричные реестры в `historical_panorama.factories`.
 
 ## Этапы
 
 1. Wikipedia-провайдер разрешает redirects и disambiguation, очищает статьи с сохранением
    разделов, извлекает infobox и выбирает не более `max_related_articles` связанных статей.
 2. LLM извлекает факты с уровнем `supported`, `inferred` или `unknown`, ссылкой на статью и
-   раздел. `lm-format-enforcer` ограничивает допустимые токены JSON Schema непосредственно
-   во время генерации, после чего ответ повторно проверяется; kernel делает одну попытку
-   исправления семантических нарушений. Модель выбирает `source_id`, а статья и раздел
-   подставляются детерминированно, поэтому она не может выдумать название источника.
+   раздел. Для Tooken ответ проверяется локально по строгой JSON Schema и при ошибке один
+   раз запрашивается исправленный JSON; ссылки дополнительно сверяются с реально переданными
+   разделами Wikipedia. Kaggle-вариант использует `lm-format-enforcer` и детерминированную
+   подстановку источника по `source_id`.
 3. Необязательные референсы проверяются локально, а Qwen2.5-VL описывает только категории
    из `use_for`, исключая элементы из `do_not_copy`. Повреждённые референсы пропускаются.
 4. Вторая LLM получает только структурированный анализ, ограничения и сведения о
    референсах — необработанный текст Wikipedia в генератор prompt не передаётся.
-5. Stable Diffusion 3.5 Medium непосредственно создаёт PNG 2:1. Blender, cubemap и
-   3D-сцена не используются. Для T4 включены FP16, model CPU offload и VAE tiling.
-6. Детерминированный валидатор проверяет файл, размеры, 2:1, пустые/чёрные/повреждённые
-   области, резкость и левый/правый шов.
+5. `gpt-image-2` получает явные требования seamless equirectangular 360°, `360° × 180°`
+   и 2:1. Поддерживаемый API landscape-кадр центрируется и приводится к точному
+   `2048×1024`; исходный ответ сохраняется как `original.png`. При выборе Kaggle вместо
+   этого используется прямая SD 3.5/SDXL генерация. Blender, cubemap и 3D не используются.
+6. Детерминированный валидатор проверяет наличие и читаемость файла, размеры и 2:1.
 7. Панорама преобразуется в восемь горизонтальных perspective-кадров и два кадра с pitch
    `+60°/-60°`.
 8. Qwen2.5-VL в Kaggle получает perspective-кадры, структурированные факты и ограничения и
@@ -35,6 +36,27 @@
 9. При технической ошибке controller добавляет конкретную коррекцию в prompt и повторяет
    полную генерацию, но не более трёх раз. После исчерпания попыток статус —
    `manual_review_required`.
+
+Число мультимодальных проверок одной попытки задаётся в YAML:
+
+```yaml
+pipeline:
+  technical_validation_enabled: true  # false = отключить файл/размеры/2:1
+  visual_validation_runs: 1  # 0 = выключить; допустимый диапазон при включении: 1-5
+```
+
+Каждый запуск получает отдельный request ID и сохраняется как
+`visual_validation_01.json`, `visual_validation_02.json` и т. д. Их агрегированный результат
+остаётся в `visual_validation.json`. Детерминированная техническая проверка управляется
+отдельным параметром `technical_validation_enabled`.
+
+Для разового запуска значение можно переопределить без изменения YAML:
+
+```bash
+historical-panorama --config config.yaml --visual-validation-runs 0 "Название события"
+historical-panorama --config config.yaml --visual-validation-runs 3 "Название события"
+historical-panorama --config config.yaml --skip-technical-validation "Название события"
+```
 
 ## Установка и настройка
 
@@ -48,8 +70,9 @@ cp config.example.yaml config.yaml
 cp .env.example .env
 ```
 
-В `.env` укажите `KAGGLE_USERNAME` и `KAGGLE_API_TOKEN` (также поддерживается legacy
-`KAGGLE_KEY`). `.env` исключён из Git.
+В `.env` укажите `GPT_TOKEN` для Tooken Club. Для Kaggle-визуальной проверки также нужны
+`KAGGLE_USERNAME` и `KAGGLE_API_TOKEN` (поддерживается legacy `KAGGLE_KEY`). `.env`
+исключён из Git.
 
 `stabilityai/stable-diffusion-3.5-medium` — gated-модель. Перед первым запуском:
 
@@ -90,16 +113,17 @@ historical-panorama --config config.yaml "Строительство крепо�
 historical-panorama-web --config config.yaml
 ```
 
-Откройте `http://127.0.0.1:8080`. По умолчанию сервер доступен только локально. Kaggle и
-Hugging Face токены передаются в окружение отдельного процесса запуска и не записываются в
-YAML, `state.json` или браузерное хранилище. Служебные данные запусков находятся в
+Откройте `http://127.0.0.1:8080`. По умолчанию сервер доступен только локально. Kaggle,
+Hugging Face и Tooken токены передаются в окружение отдельного процесса запуска и не
+записываются в YAML, `state.json` или браузерное хранилище. Служебные данные находятся в
 `.web-runs/`.
 
 Фотографии можно прикрепить только тогда, когда выбранный генератор объявляет
 `supports_image_conditioning = True`. Интерфейс блокирует загрузку для text-only моделей,
 а worker повторно проверяет capability перед внешними запросами. До четырёх JPEG, PNG или
 WebP по 8 МБ сохраняются внутри каталога запуска и передаются генератору через
-`PromptResult.reference_paths`. Встроенные SD 3.5 и SDXL kernels пока являются text-only.
+`PromptResult.reference_paths`. Встроенные SD 3.5, SDXL и `gpt-image-2` провайдеры пока
+являются text-only.
 
 Если порт `8080` уже занят, укажите другой:
 
@@ -107,12 +131,54 @@ WebP по 8 МБ сохраняются внутри каталога запус
 historical-panorama-web --config config.yaml --port 8081
 ```
 
-Список вариантов централизован в `historical_panorama.web`, а сами реализации по-прежнему
-создаются фабриками. Поэтому будущий API-провайдер (например, GPT) добавляется как новая
-фабрика и описание варианта, не меняя страницу мониторинга и pipeline.
+Список вариантов централизован в `historical_panorama.web`, а реализации создаются
+фабриками, поэтому Tooken и Kaggle можно независимо выбирать для каждой стадии.
 
-VPN влияет только на реальные запросы Wikipedia/Kaggle. Unit-тесты используют моки и не
-требуют сети или GPU.
+VPN влияет только на реальные запросы Wikipedia, Tooken и Kaggle. Unit-тесты используют
+моки и не требуют сети, баланса или GPU.
+
+## Выбор Tooken или Kaggle
+
+Текущие фабрики `tooken` используют `https://tooken.club/v1`. Для извлечения фактов
+доступен увеличенный лимит `max_context_characters: 120000`; это не жёсткий model context
+window, а безопасный предел объёма очищенных материалов Wikipedia в одном запросе.
+
+Чтобы вернуть Kaggle-текстовые модели, замените соответствующие секции на:
+
+```yaml
+fact_extractor:
+  provider: kaggle
+  kernel_slug: historical-panorama-fact-extractor
+  model_id: Qwen/Qwen2.5-7B-Instruct
+  accelerator: NvidiaTeslaT4
+  load_in_4bit: true
+  max_new_tokens: 1400
+
+prompt_builder:
+  provider: kaggle
+  kernel_slug: historical-panorama-prompt-builder
+  model_id: Qwen/Qwen2.5-7B-Instruct
+  accelerator: NvidiaTeslaT4
+  load_in_4bit: true
+```
+
+Для возврата генерации SD 3.5:
+
+```yaml
+image_generator:
+  provider: kaggle_sd35
+  kernel_slug: historical-panorama-sd35-generator
+  model_id: stabilityai/stable-diffusion-3.5-medium
+  hf_token_env: HF_TOKEN
+  accelerator: NvidiaTeslaT4
+  width: 1536
+  height: 768
+  output_width: 2048
+  output_height: 1024
+  steps: 28
+  guidance_scale: 4.5
+  seed: 42
+```
 
 ## Референсы
 
@@ -184,8 +250,8 @@ def build_provider(config, context):
 
 ## Что проверяет код, а что — модели
 
-Алгоритмы детерминированно проверяют входные файлы, JSON Schema, размеры/2:1, области
-изображения, резкость, характеристики шва, предел попыток и создают perspective-кадры.
+Алгоритмы детерминированно проверяют входные файлы, JSON Schema, размеры/2:1, предел
+попыток и создают perspective-кадры.
 Wikipedia очищается и ранжируется парсером.
 
 Текстовая Qwen выделяет исторические факты и формирует финальное визуальное описание. SD 3.5 Medium

@@ -1,0 +1,9 @@
+2026-09-19 22:24:28,132 | INFO | [1/7] Researching Wikipedia: Строительство крепости Свияжск в 1551 году
+2026-09-19 22:24:36,046 | INFO | [2/7] Validating 0 reference image(s)
+2026-09-19 22:24:36,047 | INFO | [3/7] Extracting source-grounded historical facts
+2026-09-19 22:25:15,366 | INFO | [4/7] Building the grounded panorama prompt
+2026-09-19 22:25:32,989 | INFO | [5/7] Generating panorama attempt 1/3
+2026-09-19 22:26:10,222 | INFO | [6/7] Running deterministic technical validation
+2026-09-19 22:26:10,330 | WARNING | Attempt 1 rejected; next prompt correction: make colors continuous across the left-right seam; keep lighting and brightness continuous across the seam; preserve one continuous level horizon across the seam
+2026-09-19 22:26:10,331 | INFO | [5/7] Generating panorama attempt 2/3
+2026-09-19 22:31:11,726 | ERROR | Pipeline failed: Compatible API returned HTTP 504: Модель не смогла выполнить запрос из-за временной ошибки.

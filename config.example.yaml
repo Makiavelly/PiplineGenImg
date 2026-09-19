@@ -8,19 +8,16 @@ search:
   timeout_seconds: 20
 
 fact_extractor:
-  provider: kaggle
-  kernel_slug: historical-panorama-fact-extractor
-  model_id: Qwen/Qwen2.5-7B-Instruct
-  accelerator: NvidiaTeslaT4
-  load_in_4bit: true
-  max_new_tokens: 1400
+  provider: tooken
+  model_id: gpt-5.6-sol
+  max_context_characters: 120000
+  max_source_characters: 12000
+  max_output_tokens: 5000
 
 prompt_builder:
-  provider: kaggle
-  kernel_slug: historical-panorama-prompt-builder
-  model_id: Qwen/Qwen2.5-7B-Instruct
-  accelerator: NvidiaTeslaT4
-  load_in_4bit: true
+  provider: tooken
+  model_id: gpt-5.6-sol
+  max_output_tokens: 1500
 
 visual_validator:
   provider: kaggle
@@ -31,20 +28,18 @@ visual_validator:
   max_new_tokens: 1600
 
 image_generator:
-  provider: kaggle_sd35
-  kernel_slug: historical-panorama-sd35-generator
-  model_id: stabilityai/stable-diffusion-3.5-medium
-  hf_token_env: HF_TOKEN
-  accelerator: NvidiaTeslaT4
-  width: 1536
-  height: 768
+  provider: tooken
+  model_id: gpt-image-2
+  size: 1536x1024
+  quality: high
   output_width: 2048
   output_height: 1024
-  steps: 28
-  guidance_scale: 4.5
-  max_sequence_length: 512
-  skip_layer_guidance: true
   seed: 42
+
+openai_compatible:
+  base_url: https://tooken.club/v1
+  token_env: GPT_TOKEN
+  timeout_seconds: 300
 
 kaggle:
   poll_interval_seconds: 15
@@ -57,3 +52,7 @@ output_dir: runs
 pipeline:
   max_full_generations: 3
   perspective_frame_size: 512
+  # Local checks for file readability, configured dimensions and exact 2:1 ratio.
+  technical_validation_enabled: true
+  # 0 disables multimodal validation; 1-5 runs independent checks per image attempt.
+  visual_validation_runs: 1

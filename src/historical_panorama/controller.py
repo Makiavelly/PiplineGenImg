@@ -17,14 +17,6 @@ class AttemptDecision:
 class RetryController:
     TECHNICAL_FIXES = {
         "aspect_ratio_2_to_1": "preserve an exact 2:1 equirectangular canvas",
-        "black_regions": "fill the complete spherical view; remove black or missing regions",
-        "empty_regions": "add coherent scene detail to empty regions without inventing new objects",
-        "corrupted_regions": "remove clipped or corrupted image regions",
-        "sharpness": "increase coherent detail and reduce excessive blur",
-        "seam_color": "make colors continuous across the left-right seam",
-        "seam_brightness": "keep lighting and brightness continuous across the seam",
-        "seam_structure": "continue structures naturally across the seam without duplication",
-        "seam_horizon": "preserve one continuous level horizon across the seam",
         "dimensions": "use the configured output dimensions",
         "image_readable": "produce a valid readable PNG image",
         "file_exists": "produce the requested image file",
@@ -61,4 +53,3 @@ class RetryController:
         if not correction:
             correction = "correct the reported global consistency problems and do not repeat them"
         return AttemptDecision("retry_full_generation", True, False, correction, reasons)
-

@@ -31,16 +31,28 @@ def load_dotenv(path: Path = Path(".env")) -> None:
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
-def build_pipeline(config_path: Path) -> tuple[HistoricalPanoramaPipeline, ConnectionChecks]:
+def build_pipeline(
+    config_path: Path,
+    *,
+    visual_validation_runs_override: int | None = None,
+    technical_validation_enabled_override: bool | None = None,
+) -> tuple[HistoricalPanoramaPipeline, ConnectionChecks]:
     load_dotenv()
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
         raise ValueError("The configuration root must be a YAML mapping")
-    return build_pipeline_from_mapping(config)
+    return build_pipeline_from_mapping(
+        config,
+        visual_validation_runs_override=visual_validation_runs_override,
+        technical_validation_enabled_override=technical_validation_enabled_override,
+    )
 
 
 def build_pipeline_from_mapping(
     config: Mapping[str, Any],
+    *,
+    visual_validation_runs_override: int | None = None,
+    technical_validation_enabled_override: bool | None = None,
 ) -> tuple[HistoricalPanoramaPipeline, ConnectionChecks]:
     """Build a pipeline from an already parsed configuration.
 
@@ -61,9 +73,19 @@ def build_pipeline_from_mapping(
     fact_extractor = fact_extractor_factories.create(fact_config, context)
     prompt_builder = prompt_builder_factories.create(config["prompt_builder"], context)
     image_generator = image_generator_factories.create(config["image_generator"], context)
-    visual_validator = visual_validator_factories.create(
-        config.get("visual_validator", {"provider": "unavailable"}), context
-    )
+    pipeline_config = dict(config.get("pipeline", {}))
+    if visual_validation_runs_override is not None:
+        if not 0 <= visual_validation_runs_override <= 5:
+            raise ValueError("visual_validation_runs override must be between 0 and 5")
+        pipeline_config["visual_validation_runs"] = visual_validation_runs_override
+    if technical_validation_enabled_override is not None:
+        pipeline_config["technical_validation_enabled"] = (
+            technical_validation_enabled_override
+        )
+    visual_config = config.get("visual_validator", {"provider": "unavailable"})
+    if int(pipeline_config.get("visual_validation_runs", 1)) == 0:
+        visual_config = {"provider": "unavailable"}
+    visual_validator = visual_validator_factories.create(visual_config, context)
     pipeline = HistoricalPanoramaPipeline(
         information,
         prompt_builder,
@@ -72,6 +94,6 @@ def build_pipeline_from_mapping(
         fact_extractor=fact_extractor,
         visual_validator=visual_validator,
         reference_analyzer=visual_validator,
-        pipeline_config=config.get("pipeline", {}),
+        pipeline_config=pipeline_config,
     )
     return pipeline, context.connection_checks

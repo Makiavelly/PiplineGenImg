@@ -31,6 +31,7 @@ from .models import (
     ResearchResult,
     SceneConstraints,
     Source,
+    TechnicalValidationReport,
     VisualIssue,
     VisualValidationReport,
     WikipediaEventMetadata,
@@ -78,6 +79,12 @@ class HistoricalPanoramaPipeline:
         self.retry_controller = retry_controller or RetryController(
             max_full_generations=int(config.get("max_full_generations", 3))
         )
+        self.visual_validation_runs = int(config.get("visual_validation_runs", 1))
+        self.technical_validation_enabled = bool(
+            config.get("technical_validation_enabled", True)
+        )
+        if not 0 <= self.visual_validation_runs <= 5:
+            raise ValueError("visual_validation_runs must be between 0 and 5")
 
     def run(
         self,
@@ -190,12 +197,21 @@ class HistoricalPanoramaPipeline:
             if final_visual_path.is_file()
             else {"status": "visual_validation_unavailable"}
         )
+        final_technical_path = (
+            run_dir / "attempts" / f"attempt_{attempts:02d}" / "technical_validation.json"
+        )
+        final_technical = (
+            json.loads(final_technical_path.read_text(encoding="utf-8"))
+            if final_technical_path.is_file()
+            else {"status": "unavailable"}
+        )
         state.write_json(
             run_dir / "final_report.json",
             {
                 "status": final_status,
                 "attempts": attempts,
                 "rejection_reasons": rejection_reasons,
+                "technical_validation_status": final_technical.get("status"),
                 "visual_validation_status": final_visual.get("status"),
                 "visual_validation_available": final_visual.get("status")
                 != "visual_validation_unavailable",
@@ -244,22 +260,39 @@ class HistoricalPanoramaPipeline:
             last_image = image
             state.update(stage="generation_complete", current_attempt=attempt)
 
-            LOG.info("[6/7] Running deterministic technical validation")
-            expected_width, expected_height = self._expected_output_size()
-            technical = self.technical_validator.validate(
-                image.path, expected_width=expected_width, expected_height=expected_height
-            )
+            if self.technical_validation_enabled:
+                LOG.info("[6/7] Running deterministic technical validation")
+                expected_width, expected_height = self._expected_output_size()
+                technical = self.technical_validator.validate(
+                    image.path, expected_width=expected_width, expected_height=expected_height
+                )
+            else:
+                LOG.info("[6/7] Deterministic technical validation is disabled")
+                technical = TechnicalValidationReport(
+                    "disabled",
+                    explanation="Technical validation was disabled by pipeline configuration",
+                )
             state.write_json(attempt_dir / "technical_validation.json", asdict(technical))
 
             frames_dir = attempt_dir / "perspective_frames"
-            readable = all(
+            readable = self.technical_validation_enabled and all(
                 check.status == "passed"
                 for check in technical.checks
                 if check.name in {"file_exists", "image_readable"}
             )
+            if not self.technical_validation_enabled:
+                # The perspective projector performs its own image decoding. This is not
+                # treated as a technical validation result.
+                readable = True
             frames = []
             projection_error = ""
-            if readable:
+            if self.visual_validation_runs == 0:
+                state.write_json(frames_dir / "frames.json", [])
+                visual = VisualValidationReport(
+                    "visual_validation_unavailable",
+                    explanation="Visual validation was disabled by pipeline configuration",
+                )
+            elif readable:
                 try:
                     frames = self.perspective_projector.generate_standard_views(
                         image.path, frames_dir
@@ -268,25 +301,41 @@ class HistoricalPanoramaPipeline:
                     projection_error = f"Perspective conversion failed: {type(exc).__name__}: {exc}"
             else:
                 projection_error = "Perspective conversion skipped because the image is unreadable"
-            if projection_error:
+            if self.visual_validation_runs == 0:
+                pass
+            elif projection_error:
                 state.write_json(frames_dir / "frames.json", [])
                 visual = VisualValidationReport(
                     "visual_validation_unavailable", explanation=projection_error
                 )
             else:
-                LOG.info("[7/7] Running visual/historical validation")
-                try:
-                    visual = self.visual_validator.validate(
-                        frames, analysis, references, run_id
+                LOG.info(
+                    "[7/7] Running %d visual/historical validation check(s)",
+                    self.visual_validation_runs,
+                )
+                visual_reports = []
+                for check_number in range(1, self.visual_validation_runs + 1):
+                    validation_run_id = (
+                        f"{run_id}-attempt-{attempt}-visual-{check_number}"
                     )
-                except (RuntimeError, OSError, ValueError) as exc:
-                    visual = VisualValidationReport(
-                        "visual_validation_unavailable",
-                        explanation=(
-                            "Multimodal validation failed; deterministic checks remain valid: "
-                            f"{type(exc).__name__}: {exc}"
-                        ),
+                    try:
+                        report = self.visual_validator.validate(
+                            frames, analysis, references, validation_run_id
+                        )
+                    except (RuntimeError, OSError, ValueError) as exc:
+                        report = VisualValidationReport(
+                            "visual_validation_unavailable",
+                            explanation=(
+                                "Multimodal validation failed; deterministic checks remain valid: "
+                                f"{type(exc).__name__}: {exc}"
+                            ),
+                        )
+                    visual_reports.append(report)
+                    state.write_json(
+                        attempt_dir / f"visual_validation_{check_number:02d}.json",
+                        asdict(report),
                     )
+                visual = self._aggregate_visual_reports(visual_reports)
             state.write_json(attempt_dir / "visual_validation.json", asdict(visual))
             supports_inpainting = bool(getattr(self.image_generator, "supports_inpainting", False))
             decision = self.retry_controller.decide(
@@ -374,6 +423,49 @@ class HistoricalPanoramaPipeline:
         width = options.get("output_width", options.get("width"))
         height = options.get("output_height", options.get("height"))
         return (int(width), int(height)) if width and height else (None, None)
+
+    @staticmethod
+    def _aggregate_visual_reports(
+        reports: list[VisualValidationReport],
+    ) -> VisualValidationReport:
+        available = [
+            report
+            for report in reports
+            if report.status != "visual_validation_unavailable"
+        ]
+        if not available:
+            explanations = [report.explanation for report in reports if report.explanation]
+            return VisualValidationReport(
+                "visual_validation_unavailable",
+                explanation="; ".join(explanations)
+                or "All requested visual validation checks were unavailable",
+            )
+        unique: dict[tuple[object, ...], VisualIssue] = {}
+        for report in available:
+            for issue in report.issues:
+                key = (
+                    issue.error_type,
+                    issue.description,
+                    issue.frame_number,
+                    issue.yaw,
+                    issue.pitch,
+                    issue.severity,
+                    issue.scope,
+                    issue.suggested_fix,
+                )
+                unique[key] = issue
+        failed = any(report.status == "failed" for report in available)
+        unavailable_count = len(reports) - len(available)
+        explanation = (
+            f"Aggregated {len(available)} available visual validation check(s)"
+        )
+        if unavailable_count:
+            explanation += f"; {unavailable_count} check(s) unavailable"
+        return VisualValidationReport(
+            "failed" if failed else "passed",
+            list(unique.values()),
+            explanation,
+        )
 
     @staticmethod
     def _publish_final(source: Path, run_dir: Path) -> None:

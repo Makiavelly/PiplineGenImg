@@ -142,8 +142,9 @@ class ValidationCheck:
 
 @dataclass(frozen=True)
 class TechnicalValidationReport:
-    status: ValidationStatus
+    status: Literal["passed", "failed", "disabled"]
     checks: list[ValidationCheck] = field(default_factory=list)
+    explanation: str = ""
 
 
 @dataclass(frozen=True)

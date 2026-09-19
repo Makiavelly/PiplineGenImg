@@ -32,8 +32,17 @@ function renderStages(data) {
       </div>
     </div>
   `).join('');
+  $('#visualValidationEnabled').checked = Boolean(data.visual_validation?.enabled ?? true);
+  $('#visualValidationRuns').value = data.visual_validation?.runs || 1;
+  $('#technicalValidationEnabled').checked = Boolean(data.technical_validation?.enabled ?? true);
   document.querySelectorAll('[data-stage]').forEach(select => {
-    select.addEventListener('change', () => { updateDescription(select); updateFormDependencies(); });
+    select.addEventListener('change', () => {
+      if (select.dataset.stage === 'visual_validator') {
+        $('#visualValidationEnabled').checked = select.value !== 'unavailable';
+      }
+      updateDescription(select);
+      updateFormDependencies();
+    });
     updateDescription(select);
   });
   updateFormDependencies();
@@ -59,7 +68,8 @@ function selectedImageProvider() {
 function updateFormDependencies() {
   const values = Object.values(selections());
   const usesKaggle = values.some(value => value.startsWith('kaggle'));
-  $('#credentials').classList.toggle('hidden', !usesKaggle);
+  const usesTooken = values.some(value => ['tooken', 'openai_compatible'].includes(value));
+  $('#credentials').classList.toggle('hidden', !usesKaggle && !usesTooken);
   $('#hfToken').closest('label').classList.toggle('hidden', selections().image_generator !== 'kaggle_sd35');
   const provider = selectedImageProvider();
   const supportsImages = Boolean(provider && provider.supports_images);
@@ -67,8 +77,11 @@ function updateFormDependencies() {
   $('#dropzone').disabled = !supportsImages;
   $('#uploadCapability').textContent = supportsImages
     ? 'Изображения будут переданы непосредственно генератору'
-    : 'Выбранная модель принимает только текст';
+    : 'Текущая интеграция провайдера не передаёт изображения генератору';
   if (!supportsImages && imageFiles.length) clearImages();
+  const visualProvider = selections().visual_validator;
+  const visualEnabled = $('#visualValidationEnabled').checked && visualProvider !== 'unavailable';
+  $('#visualValidationRuns').disabled = !visualEnabled;
 }
 
 function resetForm() {
@@ -78,6 +91,9 @@ function resetForm() {
     select.value = stage.selected;
     updateDescription(select);
   }
+  $('#visualValidationEnabled').checked = Boolean(options.visual_validation?.enabled ?? true);
+  $('#visualValidationRuns').value = options.visual_validation?.runs || 1;
+  $('#technicalValidationEnabled').checked = Boolean(options.technical_validation?.enabled ?? true);
   updateFormDependencies();
 }
 
@@ -200,6 +216,20 @@ async function poll(jobId) {
 
 $('#eventInput').addEventListener('input', event => { $('#charCount').textContent = event.target.value.length; });
 $('#resetButton').addEventListener('click', resetForm);
+$('#visualValidationEnabled').addEventListener('change', event => {
+  const select = document.querySelector('[data-stage="visual_validator"]');
+  if (event.target.checked && select.value === 'unavailable') {
+    const available = [...select.options].find(option => option.value !== 'unavailable');
+    if (available) {
+      select.value = available.value;
+      updateDescription(select);
+    }
+  }
+  updateFormDependencies();
+});
+$('#visualValidationRuns').addEventListener('input', event => {
+  event.target.value = Math.min(5, Math.max(1, Number(event.target.value) || 1));
+});
 $('#dropzone').addEventListener('click', () => $('#imageInput').click());
 $('#imageInput').addEventListener('change', event => addImages([...event.target.files]));
 $('#dropzone').addEventListener('dragover', event => { event.preventDefault(); if (!$('#dropzone').disabled) $('#dropzone').classList.add('dragging'); });
@@ -230,11 +260,20 @@ $('#launchForm').addEventListener('submit', async event => {
           kaggle_username: $('#kaggleUsername').value,
           kaggle_token: $('#kaggleToken').value,
           hf_token: $('#hfToken').value,
+          gpt_token: $('#gptToken').value,
+        },
+        visual_validation: {
+          enabled: $('#visualValidationEnabled').checked,
+          runs: Number($('#visualValidationRuns').value),
+        },
+        technical_validation: {
+          enabled: $('#technicalValidationEnabled').checked,
         },
       }),
     });
     $('#kaggleToken').value = '';
     $('#hfToken').value = '';
+    $('#gptToken').value = '';
     setRunning(job);
     poll(job.id);
   } catch (error) {
