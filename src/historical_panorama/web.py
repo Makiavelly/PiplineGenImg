@@ -6,9 +6,11 @@ import binascii
 import errno
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -58,7 +60,7 @@ PROVIDER_PRESETS: dict[str, dict[str, dict[str, Any]]] = {
         },
         "tooken": {
             "label": "Tooken · GPT Image 2",
-            "description": "gpt-image-2 · Tooken /images/generations, без image input",
+            "description": "gpt-image-2 · текущий Tooken endpoint не передаёт референсы напрямую",
             "supports_images": False,
         },
     },
@@ -117,10 +119,129 @@ STAGE_PROGRESS = {
     "attempt_validated": (88, "Результат проверен"),
     "complete": (100, "Готово"),
 }
+DEMO_STAGES = (
+    ("created", "Конфигурация запуска сохранена"),
+    ("wikipedia_complete", "Исторические источники найдены и ранжированы"),
+    ("references_complete", "Входные материалы и ограничения проверены"),
+    ("analysis_complete", "Исторические факты извлечены и структурированы"),
+    ("prompt_complete", "Промпт для генератора подготовлен"),
+    ("generation_complete", "Панорама сгенерирована"),
+    ("attempt_validated", "Техническая и визуальная проверки пройдены"),
+)
+ARTIFACT_INFO = {
+    "research.json": ("Материалы источников", "Wikipedia", "Извлечение фактов"),
+    "references.json": ("Контекст изображений", "Анализ референсов", "Построение промпта"),
+    "reference_analysis.json": ("Анализ изображений контекста", "Анализ референсов", "Построение промпта"),
+    "analysis.json": ("Структурированные исторические факты", "Модель фактов", "Построение промпта"),
+    "constraints.json": ("Ограничения сцены", "Модель фактов", "Построение промпта"),
+    "prompt.json": ("Промпт генерации", "Модель промпта", "Генератор изображения"),
+    "structured_description.json": ("Структурированное описание", "Модель промпта", "Генератор изображения"),
+    "used_facts.json": ("Факты, использованные в промпте", "Модель промпта", "Отчёт запуска"),
+    "sources.json": ("Источники промпта", "Модель промпта", "Отчёт запуска"),
+    "generation.json": ("Параметры генерации", "Генератор изображения", "Валидаторы"),
+    "technical_validation.json": ("Техническая проверка", "Технический валидатор", "Retry controller"),
+    "visual_validation.json": ("Визуальная проверка", "Визуальная модель", "Retry controller"),
+    "attempt_report.json": ("Решение по попытке", "Retry controller", "Следующая попытка / результат"),
+    "manifest.json": ("Manifest результата", "Pipeline", "Администратор"),
+    "final_report.json": ("Итоговый отчёт", "Pipeline", "Администратор"),
+}
+SECRET_KEY_MARKERS = ("token", "secret", "password", "api_key", "authorization")
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_artifact_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): (
+                "[скрыто]"
+                if any(marker in str(key).lower() for marker in SECRET_KEY_MARKERS)
+                else _safe_artifact_value(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        limited = [_safe_artifact_value(item) for item in value[:100]]
+        if len(value) > 100:
+            limited.append(f"… ещё элементов: {len(value) - 100}")
+        return limited
+    if isinstance(value, str) and len(value) > 20_000:
+        return value[:20_000] + f"\n… [сокращено символов: {len(value) - 20_000}]"
+    return value
+
+
+def _artifact_paths(run_dir: Path) -> list[Path]:
+    root_names = (
+        "research.json",
+        "references.json",
+        "reference_analysis.json",
+        "analysis.json",
+        "constraints.json",
+        "prompt.json",
+        "structured_description.json",
+        "used_facts.json",
+        "sources.json",
+    )
+    result = [run_dir / name for name in root_names if (run_dir / name).is_file()]
+    attempts_dir = run_dir / "attempts"
+    if attempts_dir.is_dir():
+        for attempt_dir in sorted(attempts_dir.glob("attempt_*")):
+            for name in (
+                "prompt.json",
+                "generation.json",
+                "technical_validation.json",
+                "visual_validation.json",
+                "attempt_report.json",
+            ):
+                path = attempt_dir / name
+                if path.is_file():
+                    result.append(path)
+    for name in ("manifest.json", "final_report.json"):
+        path = run_dir / name
+        if path.is_file():
+            result.append(path)
+    return result
+
+
+def artifact_revision(run_dir: Path | None) -> str:
+    if run_dir is None:
+        return "0"
+    paths = _artifact_paths(run_dir)
+    if not paths:
+        return "0"
+    return f"{len(paths)}:" + ":".join(
+        f"{path.stat().st_mtime_ns}-{path.stat().st_size}" for path in paths
+    )
+
+
+def collect_artifacts(run_dir: Path | None) -> list[dict[str, Any]]:
+    if run_dir is None:
+        return []
+    artifacts: list[dict[str, Any]] = []
+    for path in _artifact_paths(run_dir):
+        try:
+            content = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        relative = path.relative_to(run_dir)
+        title, producer, consumer = ARTIFACT_INFO.get(
+            path.name, (path.stem.replace("_", " ").title(), "Pipeline", "Следующий этап")
+        )
+        if len(relative.parts) > 1:
+            attempt = relative.parts[-2].replace("attempt_", "попытка ")
+            title = f"{title} · {attempt}"
+        artifacts.append(
+            {
+                "path": str(relative),
+                "title": title,
+                "producer": producer,
+                "consumer": consumer,
+                "content": _safe_artifact_value(content),
+            }
+        )
+    return artifacts
 
 
 def load_base_config(path: Path) -> dict[str, Any]:
@@ -190,7 +311,21 @@ def image_provider_supports_uploads(provider: str) -> bool:
     return bool(metadata.get("supports_images", False))
 
 
-def save_reference_uploads(job_root: Path, items: object) -> Path | None:
+def reference_processing_mode(selections: dict[str, str]) -> str:
+    """Return the real route used for reference images by the selected providers."""
+    if image_provider_supports_uploads(selections.get("image_generator", "")):
+        return "generator"
+    if selections.get("visual_validator") == "kaggle":
+        return "visual_analyzer"
+    return "unavailable"
+
+
+def save_reference_uploads(
+    job_root: Path,
+    items: object,
+    *,
+    require_use_for: bool = True,
+) -> Path | None:
     """Decode validated browser uploads and return a ReferenceSpec JSON file."""
     if items in (None, []):
         return None
@@ -199,7 +334,7 @@ def save_reference_uploads(job_root: Path, items: object) -> Path | None:
     if len(items) > MAX_UPLOADS:
         raise ValueError(f"Можно прикрепить не более {MAX_UPLOADS} фотографий")
 
-    decoded: list[tuple[bytes, str]] = []
+    decoded: list[tuple[bytes, str, list[str], list[str]]] = []
     for index, item in enumerate(items, start=1):
         if not isinstance(item, dict) or not isinstance(item.get("data"), str):
             raise ValueError(f"Фотография #{index} передана в неверном формате")
@@ -211,12 +346,33 @@ def save_reference_uploads(job_root: Path, items: object) -> Path | None:
             raise ValueError(f"Фотография #{index} пустая")
         if len(content) > MAX_UPLOAD_BYTES:
             raise ValueError(f"Фотография #{index} превышает лимит 8 МБ")
-        decoded.append((content, str(item.get("name", f"reference-{index}"))))
+        categories: dict[str, list[str]] = {}
+        for key in ("use_for", "do_not_copy"):
+            raw = item.get(key, [])
+            if not isinstance(raw, list) or any(not isinstance(value, str) for value in raw):
+                raise ValueError(f"Поле {key} фотографии #{index} должно быть списком строк")
+            categories[key] = list(
+                dict.fromkeys(value.strip() for value in raw if value.strip())
+            )
+        if require_use_for and not categories["use_for"]:
+            raise ValueError(
+                f"Для фотографии #{index} укажите хотя бы одну категорию use_for"
+            )
+        decoded.append(
+            (
+                content,
+                str(item.get("name", f"reference-{index}")),
+                categories["use_for"],
+                categories["do_not_copy"],
+            )
+        )
 
     uploads_dir = job_root / "uploads"
     uploads_dir.mkdir(parents=True, exist_ok=True)
     references: list[dict[str, Any]] = []
-    for index, (content, original_name) in enumerate(decoded, start=1):
+    for index, (content, original_name, use_for, do_not_copy) in enumerate(
+        decoded, start=1
+    ):
         temporary = uploads_dir / f"reference-{index}.upload"
         temporary.write_bytes(content)
         try:
@@ -235,8 +391,8 @@ def save_reference_uploads(job_root: Path, items: object) -> Path | None:
         references.append(
             {
                 "path": str(destination.resolve()),
-                "use_for": [],
-                "do_not_copy": [],
+                "use_for": use_for,
+                "do_not_copy": do_not_copy,
             }
         )
 
@@ -257,6 +413,7 @@ class Job:
     error: str = ""
     logs: list[str] = field(default_factory=list)
     run_dir: Path | None = None
+    demo: bool = False
     process: subprocess.Popen[str] | None = field(default=None, repr=False)
 
     def snapshot(self) -> dict[str, Any]:
@@ -282,6 +439,8 @@ class Job:
             "error": self.error,
             "logs": self.logs[-80:],
             "has_image": bool(self.run_dir and (self.run_dir / "panorama.png").is_file()),
+            "demo": self.demo,
+            "artifacts_revision": artifact_revision(self.run_dir),
         }
         manifest_path = self.run_dir / "manifest.json" if self.run_dir else None
         if manifest_path and manifest_path.is_file():
@@ -298,10 +457,20 @@ class Job:
 
 
 class JobManager:
-    def __init__(self, base_config: Path, jobs_root: Path):
+    def __init__(
+        self,
+        base_config: Path,
+        jobs_root: Path,
+        demo_image: Path | None = None,
+        demo_step_seconds: float = 1.25,
+    ):
         self.base_config_path = base_config
         self.base_config = load_base_config(base_config)
         self.jobs_root = jobs_root
+        self.demo_image = (
+            demo_image if demo_image is not None else base_config.parent / "fake.png"
+        ).resolve()
+        self.demo_step_seconds = max(0.0, demo_step_seconds)
         self.jobs_root.mkdir(parents=True, exist_ok=True)
         self.jobs: dict[str, Job] = {}
         self.lock = threading.Lock()
@@ -329,6 +498,10 @@ class JobManager:
                 "runs": max(1, runs),
                 "max_runs": 5,
             },
+            "demo": {
+                "available": self.demo_image.is_file(),
+                "image_name": self.demo_image.name,
+            },
         }
 
     def create(self, payload: dict[str, Any]) -> Job:
@@ -345,6 +518,9 @@ class JobManager:
             )
             for stage in STAGE_KEYS
         }
+        demo = bool(payload.get("demo", False))
+        if demo and not self.demo_image.is_file():
+            raise ValueError(f"Демонстрационное изображение не найдено: {self.demo_image}")
         visual_settings = payload.get("visual_validation", {})
         if not isinstance(visual_settings, dict):
             raise ValueError("Invalid visual validation settings")
@@ -367,12 +543,16 @@ class JobManager:
             raise ValueError("Invalid technical validation settings")
         technical_enabled = bool(technical_settings.get("enabled", True))
         uploads = payload.get("images", [])
-        if uploads and not image_provider_supports_uploads(selections["image_generator"]):
+        if uploads and not demo and reference_processing_mode(selections) == "unavailable":
             raise ValueError(
-                "Выбранный генератор не поддерживает изображения в контексте. "
-                "Удалите фотографии или выберите совместимую модель."
+                "Ни генератор, ни выбранный визуальный анализатор не принимают "
+                "референсные изображения."
             )
-        missing = [name for name in required_credentials(selections) if not str(credentials.get(name, "")).strip()]
+        missing = [] if demo else [
+            name
+            for name in required_credentials(selections)
+            if not str(credentials.get(name, "")).strip()
+        ]
         if missing:
             raise ValueError("Не заполнены данные доступа: " + ", ".join(missing))
 
@@ -380,7 +560,9 @@ class JobManager:
         job_root = self.jobs_root / job_id
         output_dir = job_root / "runs"
         job_root.mkdir(parents=True, exist_ok=False)
-        references_path = save_reference_uploads(job_root, uploads)
+        references_path = save_reference_uploads(
+            job_root, uploads, require_use_for=not demo
+        )
         config = configured_pipeline(
             self.base_config,
             selections,
@@ -390,21 +572,302 @@ class JobManager:
         )
         config_path = job_root / "config.yaml"
         config_path.write_text(yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8")
-        job = Job(job_id, event, job_root)
+        job = Job(job_id, event, job_root, demo=demo)
         with self.lock:
             self.jobs[job_id] = job
+        target = self._run_demo if demo else self._run
+        args = (
+            (job, selections, technical_enabled, visual_runs, references_path)
+            if demo
+            else (job, config_path, credentials, references_path)
+        )
         thread = threading.Thread(
-            target=self._run,
-            args=(job, config_path, credentials, references_path),
+            target=target,
+            args=args,
             name=f"panorama-{job_id}",
             daemon=True,
         )
         thread.start()
         return job
 
+    @staticmethod
+    def _write_demo_json(path: Path, data: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        temporary.replace(path)
+
+    def _write_demo_artifacts(
+        self,
+        job: Job,
+        stage: str,
+        selections: dict[str, str],
+        references_path: Path | None,
+        technical_enabled: bool,
+        visual_runs: int,
+    ) -> None:
+        assert job.run_dir is not None
+        run_dir = job.run_dir
+        analysis = {
+            "identified_event": job.event,
+            "date_or_period": "Исторический период определён по материалам источников",
+            "place": "Место события уточнено моделью",
+            "participants": ["Исторические участники события"],
+            "event_type": "historical_reconstruction",
+            "environment": ["Исторически достоверное окружение", "Естественное освещение"],
+            "architecture": ["Архитектура соответствующего периода"],
+            "clothing": ["Одежда соответствует эпохе и социальному положению"],
+            "facts": [
+                {
+                    "statement": f"Сцена реконструирует событие: {job.event}",
+                    "category": "event",
+                    "confidence": "supported",
+                    "article": "Исторический источник",
+                    "section": "Основные сведения",
+                }
+            ],
+            "constraints": {
+                "must_include": ["Главное действие события", "Исторически достоверная среда"],
+                "may_include": ["Участники на среднем и дальнем плане"],
+                "must_not_include": ["Современные предметы", "Текст и водяные знаки"],
+                "do_not_over_specify": ["Детали, не подтверждённые источниками"],
+            },
+        }
+        prompt_text = (
+            "Seamless equirectangular 360-degree panorama, 2:1 aspect ratio, "
+            f"historically accurate cinematic reconstruction of {job.event}, "
+            "human eye level, continuous level horizon, authentic period architecture, "
+            "clothing and everyday objects, natural spatial composition, consistent lighting, "
+            "360° × 180°, no visible seam, no repeated objects, no mirrored duplicates, "
+            "no excessive distortion near the poles, highly detailed documentary realism."
+        )
+        negative_prompt = (
+            "modern objects, visible dates, city names, country names, geographic coordinates, "
+            "maps, information signs, interface elements, watermark, text, anachronisms, "
+            "deformed people, duplicated characters, broken horizon"
+        )
+
+        if stage == "wikipedia_complete":
+            self._write_demo_json(
+                run_dir / "research.json",
+                {
+                    "query": job.event,
+                    "primary_article": job.event,
+                    "related_articles": ["Исторический контекст", "Участники события"],
+                    "metadata": {
+                        "title": job.event,
+                        "summary": "Очищенные и ранжированные материалы для следующего этапа.",
+                        "visual_reconstruction_notes": [
+                            "Соблюдать материальную культуру периода",
+                            "Не добавлять современные объекты",
+                        ],
+                    },
+                    "sources": [
+                        {
+                            "title": job.event,
+                            "url": "https://ru.wikipedia.org/",
+                            "section": "Основные сведения",
+                            "text": "Исторический материал очищен и подготовлен для модели фактов.",
+                            "relevance": 1.0,
+                            "is_primary": True,
+                        }
+                    ],
+                    "limitations": [],
+                },
+            )
+        elif stage == "references_complete":
+            input_references = []
+            if references_path is not None:
+                loaded = json.loads(references_path.read_text(encoding="utf-8"))
+                input_references = loaded if isinstance(loaded, list) else []
+            report = {
+                "references": [
+                    {
+                        "path": Path(str(item.get("path", "reference"))).name,
+                        "use_for": item.get("use_for", []),
+                        "do_not_copy": item.get("do_not_copy", []),
+                        "valid": True,
+                        "description_status": "ready_for_context",
+                    }
+                    for item in input_references
+                    if isinstance(item, dict)
+                ],
+                "limitations": [],
+            }
+            self._write_demo_json(run_dir / "references.json", input_references)
+            self._write_demo_json(run_dir / "reference_analysis.json", report)
+        elif stage == "analysis_complete":
+            self._write_demo_json(run_dir / "analysis.json", analysis)
+            self._write_demo_json(run_dir / "constraints.json", analysis["constraints"])
+        elif stage == "prompt_complete":
+            prompt = {
+                "prompt": prompt_text,
+                "negative_prompt": negative_prompt,
+                "metadata": {
+                    "provider": selections["prompt_builder"],
+                    "model_output": True,
+                    "seed": 42,
+                },
+                "structured_description": analysis,
+                "used_facts": analysis["facts"],
+                "sources": [{"article": job.event, "section": "Основные сведения"}],
+                "reference_paths": [],
+            }
+            self._write_demo_json(run_dir / "prompt.json", prompt)
+            self._write_demo_json(run_dir / "structured_description.json", analysis)
+            self._write_demo_json(run_dir / "used_facts.json", analysis["facts"])
+            self._write_demo_json(run_dir / "sources.json", {"sources": prompt["sources"]})
+        elif stage == "generation_complete":
+            attempt_dir = run_dir / "attempts" / "attempt_01"
+            attempt_dir.mkdir(parents=True, exist_ok=True)
+            self._write_demo_json(
+                attempt_dir / "prompt.json",
+                {"prompt": prompt_text, "negative_prompt": negative_prompt, "metadata": {"attempt": 1, "seed": 42}},
+            )
+            shutil.copy2(self.demo_image, attempt_dir / "panorama.png")
+            shutil.copy2(self.demo_image, run_dir / "panorama.png")
+            with Image.open(self.demo_image) as image:
+                width, height = image.size
+            self._write_demo_json(
+                attempt_dir / "generation.json",
+                {
+                    "provider": selections["image_generator"],
+                    "model_id": "configured-image-model",
+                    "attempt": 1,
+                    "seed": 42,
+                    "width": width,
+                    "height": height,
+                    "prompt": prompt_text,
+                    "negative_prompt": negative_prompt,
+                },
+            )
+        elif stage == "attempt_validated":
+            attempt_dir = run_dir / "attempts" / "attempt_01"
+            technical = {
+                "status": "passed" if technical_enabled else "disabled",
+                "checks": [
+                    {"name": "image_readable", "status": "passed", "explanation": "PNG успешно декодирован"},
+                    {"name": "aspect_ratio", "status": "passed", "measured_value": "2:1"},
+                    {"name": "seam", "status": "passed", "explanation": "Заметный шов не обнаружен"},
+                ] if technical_enabled else [],
+            }
+            visual = {
+                "status": "passed" if visual_runs else "visual_validation_unavailable",
+                "runs": visual_runs,
+                "issues": [],
+                "explanation": "Исторических несоответствий и критических дефектов не обнаружено.",
+            }
+            self._write_demo_json(attempt_dir / "technical_validation.json", technical)
+            self._write_demo_json(attempt_dir / "visual_validation.json", visual)
+            self._write_demo_json(
+                attempt_dir / "attempt_report.json",
+                {
+                    "attempt": 1,
+                    "generation": {"provider": selections["image_generator"], "seed": 42},
+                    "decision": {"status": "accepted", "retry": False, "reasons": []},
+                },
+            )
+
+    def _run_demo(
+        self,
+        job: Job,
+        selections: dict[str, str],
+        technical_enabled: bool,
+        visual_runs: int,
+        references_path: Path | None,
+    ) -> None:
+        job.status = "running"
+        job.run_dir = job.root / "runs" / f"demo-{job.id}"
+        job.run_dir.mkdir(parents=True, exist_ok=True)
+        state_path = job.run_dir / "state.json"
+        provider_summary = ", ".join(
+            f"{stage}={provider}" for stage, provider in selections.items()
+        )
+        job.logs.append(f"Запуск {job.id} создан")
+        job.logs.append(f"Провайдеры: {provider_summary}")
+        try:
+            for index, (stage, message) in enumerate(DEMO_STAGES, start=1):
+                state: dict[str, Any] = {
+                    "run_id": job.id,
+                    "event": job.event,
+                    "stage": stage,
+                    "status": "running",
+                    "demo": True,
+                }
+                if stage in {"generation_complete", "attempt_validated"}:
+                    state["current_attempt"] = 1
+                self._write_demo_json(state_path, state)
+                self._write_demo_artifacts(
+                    job,
+                    stage,
+                    selections,
+                    references_path,
+                    technical_enabled,
+                    visual_runs,
+                )
+                job.logs.append(f"[{index}/7] {message}")
+                time.sleep(self.demo_step_seconds)
+
+            shutil.copy2(self.demo_image, job.run_dir / "panorama.png")
+            reference_count = 0
+            if references_path is not None:
+                references = json.loads(references_path.read_text(encoding="utf-8"))
+                reference_count = len(references) if isinstance(references, list) else 0
+            manifest = {
+                "run_id": job.id,
+                "event": job.event,
+                "status": "accepted",
+                "attempts": 1,
+                "image": str(job.run_dir / "panorama.png"),
+                "rejection_reasons": [],
+                "demo": True,
+                "technical_validation_enabled": technical_enabled,
+                "visual_validation_runs": visual_runs,
+                "providers": selections,
+                "context_images": reference_count,
+            }
+            self._write_demo_json(job.run_dir / "manifest.json", manifest)
+            self._write_demo_json(
+                job.run_dir / "final_report.json",
+                {
+                    "status": "accepted",
+                    "attempts": 1,
+                    "rejection_reasons": [],
+                    "demo": True,
+                },
+            )
+            self._write_demo_json(
+                state_path,
+                {
+                    "run_id": job.id,
+                    "event": job.event,
+                    "stage": "complete",
+                    "status": "accepted",
+                    "attempts": 1,
+                    "current_attempt": 1,
+                    "demo": True,
+                },
+            )
+            job.logs.append("DONE | Pipeline завершён, результат принят")
+            job.status = "complete"
+        except Exception as exc:
+            job.status = "failed"
+            job.error = f"{type(exc).__name__}: {exc}"
+
     def get(self, job_id: str) -> Job | None:
         with self.lock:
             return self.jobs.get(job_id)
+
+    def artifacts(self, job_id: str) -> dict[str, Any] | None:
+        job = self.get(job_id)
+        if job is None:
+            return None
+        return {
+            "revision": artifact_revision(job.run_dir),
+            "artifacts": collect_artifacts(job.run_dir),
+        }
 
     def _run(
         self,
@@ -486,12 +949,22 @@ class AdminHandler(BaseHTTPRequestHandler):
             if not job:
                 self._json({"error": "Запуск не найден"}, HTTPStatus.NOT_FOUND)
                 return
-            if len(parts) == 4 and parts[3] == "image":
+            if len(parts) == 4 and parts[3] in {"image", "download"}:
                 image = job.run_dir / "panorama.png" if job.run_dir else None
                 if not image or not image.is_file():
                     self._json({"error": "Изображение ещё не готово"}, HTTPStatus.NOT_FOUND)
                     return
-                self._file(image, "image/png")
+                self._file(
+                    image,
+                    "image/png",
+                    download_name=("fake.png" if job.demo else "panorama.png")
+                    if parts[3] == "download"
+                    else None,
+                )
+                return
+            if len(parts) == 4 and parts[3] == "artifacts":
+                payload = self.manager.artifacts(job.id)
+                self._json(payload or {"revision": "0", "artifacts": []})
                 return
             self._json(job.snapshot())
             return
@@ -532,14 +1005,25 @@ class AdminHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _file(self, path: Path, content_type: str) -> None:
+    def _file(
+        self, path: Path, content_type: str, download_name: str | None = None
+    ) -> None:
         body = path.read_bytes()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store" if path.suffix == ".png" else "public, max-age=300")
+        self.send_header("Cache-Control", "no-store, max-age=0")
+        self.send_header("Pragma", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:")
+        if download_name:
+            self.send_header(
+                "Content-Disposition", f'attachment; filename="{download_name}"'
+            )
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; style-src 'self'; script-src 'self'; "
+            "img-src 'self' data: blob:",
+        )
         self.end_headers()
         self.wfile.write(body)
 
@@ -553,12 +1037,17 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--port", type=int, default=8080)
     result.add_argument("--config", type=Path, default=Path("config.yaml"))
     result.add_argument("--jobs-dir", type=Path, default=Path(".web-runs"))
+    result.add_argument(
+        "--demo-image",
+        type=Path,
+        help="Image returned by demonstration runs (defaults to fake.png near config)",
+    )
     return result
 
 
 def main() -> None:
     args = parser().parse_args()
-    manager = JobManager(args.config, args.jobs_dir)
+    manager = JobManager(args.config, args.jobs_dir, demo_image=args.demo_image)
     try:
         server = ThreadingHTTPServer((args.host, args.port), AdminHandler)
     except OSError as exc:

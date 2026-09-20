@@ -11,7 +11,10 @@ from historical_panorama import web
 from historical_panorama.web import (
     Job,
     JobManager,
+    artifact_revision,
+    collect_artifacts,
     configured_pipeline,
+    reference_processing_mode,
     required_credentials,
     save_reference_uploads,
 )
@@ -121,6 +124,29 @@ def test_job_snapshot_reads_pipeline_progress_and_result(tmp_path: Path):
     assert snapshot["result"] == {"status": "accepted", "attempts": 2, "rejection_reasons": []}
 
 
+def test_pipeline_artifacts_are_readable_and_hide_secrets(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "prompt.json").write_text(
+        json.dumps(
+            {
+                "prompt": "Historical panorama",
+                "negative_prompt": "modern objects",
+                "metadata": {"api_key": "must-not-leak", "seed": 42},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    artifacts = collect_artifacts(run_dir)
+
+    assert artifact_revision(run_dir) != "0"
+    assert artifacts[0]["title"] == "Промпт генерации"
+    assert artifacts[0]["producer"] == "Модель промпта"
+    assert artifacts[0]["content"]["prompt"] == "Historical panorama"
+    assert artifacts[0]["content"]["metadata"]["api_key"] == "[скрыто]"
+
+
 def test_job_manager_requires_credentials_when_provider_selection_is_omitted(
     tmp_path: Path,
 ):
@@ -168,7 +194,13 @@ def encoded_image(format: str = "PNG") -> str:
 def test_web_saves_valid_reference_uploads(tmp_path: Path):
     references_path = save_reference_uploads(
         tmp_path,
-        [{"name": "scene.png", "type": "image/png", "data": encoded_image()}],
+        [{
+            "name": "scene.png",
+            "type": "image/png",
+            "data": encoded_image(),
+            "use_for": ["clothing", "weapon_shape"],
+            "do_not_copy": ["background"],
+        }],
     )
 
     assert references_path is not None
@@ -176,9 +208,18 @@ def test_web_saves_valid_reference_uploads(tmp_path: Path):
     assert len(references) == 1
     assert Path(references[0]["path"]).is_file()
     assert Path(references[0]["path"]).suffix == ".png"
+    assert references[0]["use_for"] == ["clothing", "weapon_shape"]
+    assert references[0]["do_not_copy"] == ["background"]
 
 
-def test_web_rejects_upload_for_text_only_generator(tmp_path: Path):
+def test_reference_route_uses_visual_model_for_text_only_generator():
+    assert reference_processing_mode(selections()) == "visual_analyzer"
+    assert reference_processing_mode(
+        selections(visual_validator="unavailable")
+    ) == "unavailable"
+
+
+def test_web_rejects_upload_without_generator_or_visual_analyzer(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     import yaml
 
@@ -186,12 +227,16 @@ def test_web_rejects_upload_for_text_only_generator(tmp_path: Path):
     manager = JobManager(config_path, tmp_path / "jobs")
     payload = {
         "event": "Test",
-        "providers": selections(),
+        "providers": selections(visual_validator="unavailable"),
         "credentials": {},
-        "images": [{"name": "scene.png", "data": encoded_image()}],
+        "images": [{
+            "name": "scene.png",
+            "data": encoded_image(),
+            "use_for": ["clothing"],
+        }],
     }
 
-    with pytest.raises(ValueError, match="не поддерживает изображения"):
+    with pytest.raises(ValueError, match="не принимают"):
         manager.create(payload)
 
 
@@ -199,4 +244,90 @@ def test_web_rejects_unreadable_reference_upload(tmp_path: Path):
     invalid = base64.b64encode(b"not an image").decode("ascii")
 
     with pytest.raises(ValueError, match="не является читаемым изображением"):
-        save_reference_uploads(tmp_path, [{"name": "fake.png", "data": invalid}])
+        save_reference_uploads(
+            tmp_path,
+            [{"name": "fake.png", "data": invalid, "use_for": ["clothing"]}],
+        )
+
+
+def test_demo_run_needs_no_credentials_and_returns_configured_image(
+    monkeypatch, tmp_path: Path
+):
+    import yaml
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(base_config()), encoding="utf-8")
+    demo_image = tmp_path / "fake.png"
+    Image.new("RGB", (32, 16), "purple").save(demo_image)
+
+    class ImmediateThread:
+        def __init__(self, target, args, **kwargs):
+            self.target = target
+            self.args = args
+
+        def start(self):
+            self.target(*self.args)
+
+    monkeypatch.setattr(web.threading, "Thread", ImmediateThread)
+    manager = JobManager(
+        config_path, tmp_path / "jobs", demo_image=demo_image, demo_step_seconds=0
+    )
+
+    job = manager.create(
+        {
+            "event": "Постановочная историческая сцена",
+            "providers": selections(),
+            "credentials": {},
+            "demo": True,
+            "images": [
+                {
+                    "name": "context.png",
+                    "type": "image/png",
+                    "data": encoded_image(),
+                }
+            ],
+        }
+    )
+
+    snapshot = job.snapshot()
+    assert job.status == "complete"
+    assert snapshot["demo"] is True
+    assert snapshot["progress"] == 100
+    assert snapshot["result"]["status"] == "accepted"
+    assert (job.run_dir / "panorama.png").read_bytes() == demo_image.read_bytes()
+    assert (job.run_dir / "references.json").is_file()
+    demo_references = json.loads(
+        (job.run_dir / "references.json").read_text(encoding="utf-8")
+    )
+    assert demo_references[0]["use_for"] == []
+    assert demo_references[0]["do_not_copy"] == []
+    artifacts = manager.artifacts(job.id)
+    assert artifacts is not None
+    artifact_paths = {item["path"] for item in artifacts["artifacts"]}
+    assert "analysis.json" in artifact_paths
+    assert "prompt.json" in artifact_paths
+    assert "attempts/attempt_01/generation.json" in artifact_paths
+    assert "attempts/attempt_01/technical_validation.json" in artifact_paths
+    manifest = json.loads((job.run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["context_images"] == 1
+    assert "fake.png" == manager.options()["demo"]["image_name"]
+
+
+def test_demo_run_reports_missing_fake_image(tmp_path: Path):
+    import yaml
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(base_config()), encoding="utf-8")
+    manager = JobManager(
+        config_path, tmp_path / "jobs", demo_image=tmp_path / "missing.png"
+    )
+
+    with pytest.raises(ValueError, match="не найдено"):
+        manager.create(
+            {
+                "event": "Demo",
+                "providers": selections(),
+                "credentials": {},
+                "demo": True,
+            }
+        )
