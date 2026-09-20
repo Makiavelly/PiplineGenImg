@@ -115,7 +115,10 @@ class HistoricalPanoramaPipeline:
         else:
             LOG.info("[2/7] Validating %d reference image(s)", len(references or []))
             reference_report = self.reference_processor.process(references)
-            needs_analysis = any(
+            generator_accepts_images = bool(
+                getattr(self.image_generator, "supports_image_conditioning", False)
+            )
+            needs_analysis = not generator_accepts_images and any(
                 item.valid and item.use_for for item in reference_report.references
             )
             if needs_analysis and self.reference_analyzer is not None:
@@ -167,7 +170,16 @@ class HistoricalPanoramaPipeline:
             valid_reference_paths = [
                 Path(item.path) for item in reference_report.references if item.valid
             ]
-            prompt = replace(prompt, reference_paths=valid_reference_paths)
+            if valid_reference_paths and bool(
+                getattr(self.image_generator, "supports_image_conditioning", False)
+            ):
+                prompt = replace(
+                    prompt,
+                    prompt=self._add_direct_reference_guidance(prompt.prompt, reference_report),
+                    reference_paths=valid_reference_paths,
+                )
+            else:
+                prompt = replace(prompt, reference_paths=[])
             state.write_json(prompt_path, asdict(prompt))
             state.write_json(run_dir / "structured_description.json", prompt.structured_description)
             state.write_json(run_dir / "used_facts.json", [asdict(fact) for fact in prompt.used_facts])
@@ -386,6 +398,29 @@ class HistoricalPanoramaPipeline:
         run_dir.mkdir(parents=True, exist_ok=False)
         RunState(run_dir).update(run_id=run_id, event=event, stage="created", status="running")
         return run_dir, run_id, event
+
+    @staticmethod
+    def _add_direct_reference_guidance(
+        prompt: str, references: ReferenceReport
+    ) -> str:
+        rules = []
+        number = 0
+        for item in references.references:
+            if not item.valid:
+                continue
+            number += 1
+            use_for = ", ".join(item.use_for) or "no unspecified details"
+            do_not_copy = ", ".join(item.do_not_copy) or "nothing beyond use_for"
+            rules.append(
+                f"Reference image {number}: use only for [{use_for}]; "
+                f"do not copy [{do_not_copy}]."
+            )
+        return (
+            prompt
+            + " Attached reference images are visual conditioning inputs. "
+            + " ".join(rules)
+            + " Never copy any unrequested property from a reference image."
+        )
 
     @staticmethod
     def _legacy_analysis(event: str, research: ResearchResult) -> HistoricalAnalysis:

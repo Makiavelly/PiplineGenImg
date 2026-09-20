@@ -45,6 +45,8 @@ class FakePrompt:
 
 
 class FakeImage:
+    supports_image_conditioning = True
+
     def __init__(self):
         self.calls = 0
 

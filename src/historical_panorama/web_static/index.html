@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>Panorama Pipeline · Admin</title>
-  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/app.css?v=20260920-6">
 </head>
 <body>
   <div class="grain"></div>
@@ -81,7 +81,7 @@
 
         <div class="run-state hidden" id="runState">
           <div class="run-topline">
-            <div><span id="runStatus" class="status-badge">Выполняется</span><small id="runId"></small></div>
+            <div><span id="runStatus" class="status-badge">Выполняется</span></div>
             <b id="progressValue">0%</b>
           </div>
           <div class="progress-track"><i id="progressBar"></i></div>
@@ -94,14 +94,25 @@
           <details class="logs" open><summary>Технический журнал <span>свернуть</span></summary><pre id="logOutput"></pre></details>
         </div>
       </section>
+
+      <section class="panel handoffs hidden" id="handoffs" aria-live="polite">
+        <div class="handoffs-heading">
+          <div><p class="eyebrow">Live pipeline data</p><h2>Данные между этапами</h2></div>
+          <span id="artifactCount">0 объектов</span>
+        </div>
+        <div class="artifact-list" id="artifactList"></div>
+      </section>
     </section>
 
     <section class="result-section hidden" id="resultSection">
-      <div class="result-heading"><div><p class="eyebrow">Pipeline output</p><h2>Результат генерации</h2></div><div id="resultMeta"></div></div>
+      <div class="result-heading">
+        <div><p class="eyebrow">Pipeline output</p><h2>Результат генерации</h2></div>
+        <div class="result-actions"><div id="resultMeta"></div><a class="download-button hidden" id="downloadResult" href="#" download="fake.png">Скачать PNG ↓</a></div>
+      </div>
       <div class="result-frame"><img id="resultImage" alt="Сгенерированная историческая панорама"><div class="image-label">360° · Equirectangular · 2:1</div></div>
       <div id="resultWarnings" class="result-warnings hidden"></div>
     </section>
   </main>
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=20260920-6" defer></script>
 </body>
 </html>
